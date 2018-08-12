@@ -53,10 +53,11 @@ class RP_RL_agent():
 
         self.model.apply(init_weights)
 
-        print("INIT")
-        self.print_model("")
+        #print("INIT")
+        #self.print_model("")
 
-        self.loss_fn = torch.nn.MSELoss(size_average=False)  # using mean squared error
+        # self.loss_fn = torch.nn.MSELoss(size_average=False)  # using mean squared error
+        self.loss_fn = torch.nn.SmoothL1Loss(size_average=False)
 
         # loss reset every time it gets printed
         self.running_loss = 0
@@ -73,6 +74,8 @@ class RP_RL_agent():
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
 
         self.stats = RP_RL_stats()
+
+        self.debug_mode = 0
 
     '''
     Initializes environment for an iteration of learning
@@ -204,17 +207,21 @@ class RP_RL_agent():
     def state_features(self, a):
         if a is None:
             print("NONE!!!!!")
-        f = []
-        f.append(self.safe_div(self.G.out_degree(a[0]), self.E_0.out_degree(a[0])))
-        f.append(self.safe_div(self.G.in_degree(a[0]), self.E_0.in_degree(a[0])))
-        f.append(self.safe_div(self.G.out_degree(a[1]), self.E_0.out_degree(a[1])))
-        f.append(self.safe_div(self.G.in_degree(a[1]), self.E_0.out_degree(a[1])))
-        f.append(2 * int(a[0] in self.K) - 1)
-        f.append(2 * int(a[1] in self.K) - 1)
-        if a in self.edge_to_cycle_occurrence:
-            f.append(self.safe_div(self.edge_to_cycle_occurrence[a], self.num_cycles))
+            f = [0, 0, 0, 0, 0, 0, 0]
         else:
-            f.append(0)
+            f = []
+            f.append(self.safe_div(self.G.out_degree(a[0]), self.E_0.out_degree(a[0])))
+            f.append(self.safe_div(self.G.in_degree(a[0]), self.E_0.in_degree(a[0])))
+            f.append(self.safe_div(self.G.out_degree(a[1]), self.E_0.out_degree(a[1])))
+            f.append(self.safe_div(self.G.in_degree(a[1]), self.E_0.out_degree(a[1])))
+            f.append(2 * int(a[0] in self.K) - 1)
+            f.append(2 * int(a[1] in self.K) - 1)
+            if a in self.edge_to_cycle_occurrence:
+                f.append(self.safe_div(self.edge_to_cycle_occurrence[a], self.num_cycles))
+            else:
+                f.append(0)
+        if self.debug_mode >= 3:
+            print("features", f)
         return Variable(torch.from_numpy(np.array(f)).float())
 
     def get_Q_val(self, a):
@@ -232,6 +239,9 @@ class RP_RL_agent():
             if c not in self.known_winners:
                 self.known_winners.add(c)
                 new_winners.append(c)
+
+        if self.debug_mode >= 2:
+            print('goal state with new winners', new_winners)
 
         return new_winners
 
@@ -256,6 +266,9 @@ class RP_RL_agent():
     Adds edge a from E to G
     '''
     def make_move(self, a, f_testing = False):
+        if self.debug_mode >= 2:
+            print('making move', a)
+
         self.G.add_edges_from([a])
         self.E.remove_edges_from([a])
 
@@ -328,6 +341,9 @@ class RP_RL_agent():
 
         self.stats.running_loss += loss.item()
         self.running_loss += loss.item()
+
+        if self.debug_mode >= 2:
+            print("loss, old_q_val, new_q_val", loss.item(), old_q_value.item(), new_q_value.item())
 
         if self.optimizer_type == 1:
             # Gradient descent

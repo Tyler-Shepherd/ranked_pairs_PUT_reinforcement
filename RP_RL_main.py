@@ -96,7 +96,7 @@ def test_model(test_output_file, agent, test_filenames):
 test_every = 2500
 
 # Whether or not to test before any training
-test_at_start = 1
+test_at_start = 0
 
 # Number of iterations to use when testing
 num_test_iterations = 5

@@ -75,9 +75,12 @@ class RL_base():
                 legal_actions = agent.get_legal_actions()
 
                 if self.debug_mode >= 2:
-                    print("start")
                     agent.print_state()
                     print("legal actions:", legal_actions)
+
+                if self.debug_mode >= 3:
+                    for e in legal_actions:
+                        print("action, q val", e, agent.get_Q_val(e).item())
 
                 if len(legal_actions) == 0:
                     # No possible actions
@@ -110,8 +113,12 @@ class RL_base():
                             max_action_val = action_Q_val
 
                     a = max_action
+                    if max_action == None:
+                        print('None?')
                     if self.debug_mode >= 2:
                         print("greedily select action", a, "with q val", max_action_val)
+
+                assert(a is not None)
 
                 # Take the action and update q vals
                 self.update_q(agent, a)
