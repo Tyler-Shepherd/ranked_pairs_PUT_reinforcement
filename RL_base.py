@@ -25,7 +25,7 @@ class RL_base():
 
     def __init__(self, num_profiles):
         # Tunable learning parameters
-        self.learning_rate = 0.04
+        self.learning_rate = 0.05
         # self.learning_rate = 1.0
         self.discount_factor = 0.9
         self.exploration_rate = 0.1

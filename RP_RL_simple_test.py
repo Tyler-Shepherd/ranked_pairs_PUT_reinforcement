@@ -37,22 +37,70 @@ if __name__ == '__main__':
     agent.initialize(profile)
     agent.reset_environment()
 
-    agent.K = frozenset({0})
+    output_file = open("weight_output.txt", 'w+')
 
-    while agent.at_goal_state() == -1:
+    agent.print_model(output_file)
 
-        legal_actions = agent.get_legal_actions()
+    agent.K = frozenset({0,1,2})
 
-        # Find best action
-        max_action = None
-        max_action_val = float("-inf")
-        for e in legal_actions:
-            action_Q_val = agent.get_Q_val(e)
-            print(e, action_Q_val)
-            if action_Q_val > max_action_val:
-                max_action = e
-                max_action_val = action_Q_val
+    print("********* START *************")
 
-        print("Max action", max_action)
+    # Print weights
+    model = agent.model.parameters()
 
-        agent.make_move(max_action)
+    is_bias = -1
+    to_hidden = -1
+
+    bias_weight_sum_to_hidden = 0
+    feature_weight_sum_to_hidden = [0] * agent.D_in
+
+    for p in model:
+        data = p.data.numpy().tolist()
+
+        if is_bias == -1:
+            for unit_weights in data:
+                for i in range(len(unit_weights)):
+                    if to_hidden == -1:
+                        feature_weight_sum_to_hidden[i] += unit_weights[i]
+        else:
+            if to_hidden == -1:
+                for val in data:
+                    bias_weight_sum_to_hidden += val
+
+        if is_bias == 1:
+            to_hidden = 1
+        is_bias = - is_bias
+
+    # print(feature_weight_sum_to_hidden)
+
+    print("bias", 1)
+    print("u out degree", feature_weight_sum_to_hidden[0] / bias_weight_sum_to_hidden)
+    print("u in degree", feature_weight_sum_to_hidden[1]/ bias_weight_sum_to_hidden)
+    print("v out degree", feature_weight_sum_to_hidden[2] / bias_weight_sum_to_hidden)
+    print("v in degree", feature_weight_sum_to_hidden[3] / bias_weight_sum_to_hidden)
+    print("u known winner", feature_weight_sum_to_hidden[4] / bias_weight_sum_to_hidden)
+    print("v known winner", feature_weight_sum_to_hidden[5] / bias_weight_sum_to_hidden)
+    print("edge cycles num", feature_weight_sum_to_hidden[6] / bias_weight_sum_to_hidden)
+    print("num times visited", feature_weight_sum_to_hidden[7] / bias_weight_sum_to_hidden)
+
+    # for i in feature_weight_sum_to_hidden:
+    #     print(i / bias_weight_sum_to_hidden)
+
+    # while agent.at_goal_state() == -1:
+    #
+    #     legal_actions = agent.get_legal_actions()
+    #
+    #     # Find best action
+    #     max_action = None
+    #     max_action_val = float("-inf")
+    #     print("\nlegal actions:")
+    #     for e in legal_actions:
+    #         action_Q_val = agent.get_Q_val(e)
+    #         print(e, action_Q_val)
+    #         if action_Q_val > max_action_val:
+    #             max_action = e
+    #             max_action_val = action_Q_val
+    #
+    #     print("Max action", max_action)
+    #
+    #     agent.make_move(max_action)

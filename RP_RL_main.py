@@ -64,10 +64,11 @@ def read_Y_prediction(inputfile):
 
     return Y, filenames
 
-def test_model(test_output_file, agent, test_filenames):
+def test_model(test_output_file, agent, test_filenames, true_winners):
     # Test the agents learned model
 
     num_found_test = 0
+    num_total_iterations = 0
     j = 0
 
     agent.save_model()
@@ -80,15 +81,17 @@ def test_model(test_output_file, agent, test_filenames):
         test_profile = read_profile(test_inputfile)
 
         # print("Testing", test_inputfile)
+        winners = set(true_winners[j])
 
-        test_PUT_winners, times_discovered = agent.test_model(test_profile, num_test_iterations)
+        test_PUT_winners, times_discovered, num_iters_to_find_all_winners = agent.test_model(test_profile, num_test_iterations, winners)
 
         num_found_test += len(test_PUT_winners)
+        num_total_iterations += num_iters_to_find_all_winners
 
         j += 1
 
-    print("Test found", num_found_test, "took", time.perf_counter() - start)
-    test_output_file.write(str(i) + "\t" + str(num_found_test) + "\n")
+    print("Test found", num_found_test, "in", num_total_iterations, "iterations, took", time.perf_counter() - start)
+    test_output_file.write(str(i) + "\t" + str(num_found_test) + "\t" + str(num_total_iterations) + "\n")
     test_output_file.flush()
 
 
@@ -99,10 +102,10 @@ test_every = 2500
 test_at_start = 0
 
 # Number of iterations to use when testing
-num_test_iterations = 5
+num_test_iterations = 10
 
 # Whether to initialize model from default values (for comparison purposes)
-f_start_from_default = 1
+f_start_from_default = 0
 
 f_experience_replay = 0
 
@@ -124,8 +127,9 @@ if __name__ == '__main__':
     inf1.close()
 
     filenames = sorted(glob.glob('M10N10-*.csv'))
+    # filenames = sorted(glob.glob('M50N50-*.csv'))
 
-    train_filenames = filenames[0:80000]
+    train_filenames = filenames[6:7]
     test_filenames = filenames[80000:100000]
 
     # Open files for output
@@ -205,14 +209,28 @@ if __name__ == '__main__':
         parameters_file.write("Experience Replay Sample Factor\t" + str(base.unusual_sample_factor) + '\n')
         parameters_file.write("Experience Replay Batch Size\t" + str(base.batch_size) + '\n')
         parameters_file.write("Experience Replay Train Every\t" + str(base.train_every_iterations) + '\n')
+    parameters_file.write("Num Test Iterations\t" + str(num_test_iterations) + '\n')
 
     parameters_file.write("Date\t" + str(datetime.datetime.now()) + '\n')
 
     parameters_file.flush()
 
+    # read true winners
+    true_winners = []
+    winners_file = open("../../Winners/winners_m10n10-100k_last_20k.txt", 'r')
+    for line in winners_file:
+        winners = []
+        for c in line:
+            if c == '[' or c == ',' or c == ' ' or c ==']' or c =='\n':
+                continue
+            winners.append(int(c))
+        true_winners.append(winners)
+
+    test_output_file.write('Profile\tNum Winners\tNum Iterations\n')
+
     for inputfile in train_filenames:
         if i % test_every == 0 and (test_at_start or i != 0):
-            test_model(test_output_file, agent, test_filenames)
+            test_model(test_output_file, agent, test_filenames, true_winners)
 
         profile = read_profile(inputfile)
 
@@ -239,12 +257,12 @@ if __name__ == '__main__':
         output_file.write(result_text + '\n')
         output_file.flush()
 
-        agent.print_model(weight_file, f_print_to_console=False)
+        # agent.print_model("", f_print_to_console=False)
 
         i += 1
 
     # Final test
-    test_model(test_output_file, agent, test_filenames)
+    # test_model(test_output_file, agent, test_filenames, true_winners)
 
     # Close files
     output_file.close()

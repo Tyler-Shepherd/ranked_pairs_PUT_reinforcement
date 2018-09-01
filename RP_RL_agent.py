@@ -22,6 +22,9 @@ import random
 from pprint import pprint
 import glob
 
+sys.path.append('..//..//node2vec-master//src')
+import node2vec
+import main as node2vecmain
 
 class RP_RL_stats():
     def __init__(self):
@@ -31,17 +34,26 @@ class RP_RL_stats():
         # loss over entire profile
         self.running_loss = 0
 
+# Util functions
 def init_weights(m):
     if type(m) == torch.nn.Linear:
         torch.nn.init.xavier_uniform_(m.weight)
         m.bias.data.fill_(0.01)
 
+def edges2string(edges, I):
+    m = len(I)
+    gstring = list(str(0).zfill(m**2))
+    for e in edges:
+        gstring[(e[0] - min(I))*m + e[1] - min(I)] = '1'
+
+    return ''.join(gstring)
 
 class RP_RL_agent():
     def __init__(self, learning_rate = 0, loss_output_file = None):
         # Initialize learning model
 
-        self.D_in = 7  # input dimension, 6 features
+        self.D_in = 8  # input dimension, 7 features + num times visited
+        # self.D_in = 256 + 7 # node2vec
         self.H = 100  # hidden dimension
         self.D_out = 1  # output dimension, just want q value
 
@@ -57,7 +69,7 @@ class RP_RL_agent():
         #self.print_model("")
 
         # self.loss_fn = torch.nn.MSELoss(size_average=False)  # using mean squared error
-        self.loss_fn = torch.nn.SmoothL1Loss(size_average=False)
+        self.loss_fn = torch.nn.SmoothL1Loss(size_average=False) # Huber loss
 
         # loss reset every time it gets printed
         self.running_loss = 0
@@ -73,7 +85,17 @@ class RP_RL_agent():
         if self.optimizer_type == 2:
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
 
+        self.visited = {}
+
         self.stats = RP_RL_stats()
+
+        # node2vec stuff
+        self.node2vec_args = node2vecmain.parse_args()
+        self.node2vec_args.directed = True
+        self.node2vec_args.weighted = False
+        self.node2vec_args.unweighted = True
+        self.node2vec_args.undirected = False
+        self.node2vec_args.output = "node2vec_output.emb"
 
         self.debug_mode = 0
 
@@ -82,6 +104,7 @@ class RP_RL_agent():
     env0 is a profile
     creates G_0 = initial state of RP graph (no edges)
     creates E_0 = initial state of unadded edges (all of them)
+    resets visited set
     '''
     def initialize(self, env0):
         wmg = env0.getWmg()
@@ -129,10 +152,18 @@ class RP_RL_agent():
         self.G_0.add_edges_from(bridges)
         self.E_0.remove_edges_from(bridges)
 
+        node2vec_G = node2vec.Graph(self.E_0, True, self.node2vec_args.p, self.node2vec_args.q)
+        node2vec_G.preprocess_transition_probs()
+        walks = node2vec_G.simulate_walks(self.node2vec_args.num_walks, self.node2vec_args.walk_length)
+        self.node2vec_model = node2vecmain.learn_embeddings(walks, self.node2vec_args)
+
+        self.visited = {}
+
         self.stats = RP_RL_stats()
 
     '''
     Resets G (the current RP graph), E (the graph of unadded edges) and K (the known winners)
+    Does not reset the visited set
     '''
     def reset_environment(self):
         self.G = self.G_0.copy()
@@ -140,10 +171,13 @@ class RP_RL_agent():
 
         # Randomly initialize known winners
         self.K = set()
+
         for a in self.known_winners:
-            if random.random() > 0.4:
+            if random.random() > 0.5:
                 self.K.add(a)
         self.K = frozenset(self.K)
+
+        self.update_visited()
 
     '''
     Returns -1 if not at goal state
@@ -158,16 +192,22 @@ class RP_RL_agent():
         # Stop Condition 2: Pruning. Possible winners are subset of known winners
         if set(possible_winners) <= self.K:
             self.stats.stop_condition_hits[2] += 1
+            if self.debug_mode >= 3:
+                print("at_goal_state: 2")
             return 2
 
         # Stop Condition 1: E has no more edges
         if len(self.E.edges()) == 0:
             self.stats.stop_condition_hits[1] += 1
+            if self.debug_mode >= 3:
+                print("at_goal_state: 1")
             return 1
 
         # Stop Condition 3: Exactly one node has indegree 0
         if len(possible_winners) == 1:
             self.stats.stop_condition_hits[3] += 1
+            if self.debug_mode >= 3:
+                print("at_goal_state: 3")
             return 3
 
         return -1
@@ -205,24 +245,30 @@ class RP_RL_agent():
     # Returns input layer features at current state taking action a
     # a is an edge
     def state_features(self, a):
-        if a is None:
-            print("NONE!!!!!")
-            f = [0, 0, 0, 0, 0, 0, 0]
+        f = []
+        f.append(self.safe_div(self.G.out_degree(a[0]), self.E_0.out_degree(a[0])))
+        f.append(self.safe_div(self.G.in_degree(a[0]), self.E_0.in_degree(a[0])))
+        f.append(self.safe_div(self.G.out_degree(a[1]), self.E_0.out_degree(a[1])))
+        f.append(self.safe_div(self.G.in_degree(a[1]), self.E_0.out_degree(a[1])))
+        f.append(2 * int(a[0] in self.K) - 1)
+        f.append(2 * int(a[1] in self.K) - 1)
+        if a in self.edge_to_cycle_occurrence:
+            f.append(self.safe_div(self.edge_to_cycle_occurrence[a], self.num_cycles))
         else:
-            f = []
-            f.append(self.safe_div(self.G.out_degree(a[0]), self.E_0.out_degree(a[0])))
-            f.append(self.safe_div(self.G.in_degree(a[0]), self.E_0.in_degree(a[0])))
-            f.append(self.safe_div(self.G.out_degree(a[1]), self.E_0.out_degree(a[1])))
-            f.append(self.safe_div(self.G.in_degree(a[1]), self.E_0.out_degree(a[1])))
-            f.append(2 * int(a[0] in self.K) - 1)
-            f.append(2 * int(a[1] in self.K) - 1)
-            if a in self.edge_to_cycle_occurrence:
-                f.append(self.safe_div(self.edge_to_cycle_occurrence[a], self.num_cycles))
-            else:
-                f.append(0)
+            f.append(0)
+        f.append(self.get_num_times_visited())
+
+        # node2vec_u = self.node2vec_model.wv[str(a[0])]
+        # node2vec_v = self.node2vec_model.wv[str(a[1])]
+        # node2vec_uv = np.append(node2vec_u, node2vec_v)
+        #
+        # node2vec_f = np.append(node2vec_uv, np.array(f))
+
         if self.debug_mode >= 3:
             print("features", f)
+
         return Variable(torch.from_numpy(np.array(f)).float())
+        # return Variable(torch.from_numpy(node2vec_f).float())
 
     def get_Q_val(self, a):
         state_features = self.state_features(a)
@@ -264,6 +310,7 @@ class RP_RL_agent():
 
     '''
     Adds edge a from E to G
+    And performs reductions
     '''
     def make_move(self, a, f_testing = False):
         if self.debug_mode >= 2:
@@ -299,6 +346,8 @@ class RP_RL_agent():
                 self.E.remove_edges_from([e])
 
         self.stats.num_nodes += 1
+
+        self.update_visited()
 
         if not f_testing:
             self.running_nodes += 1
@@ -386,15 +435,23 @@ class RP_RL_agent():
         print("model saved")
 
 
-    def test_model(self, test_env, num_iterations):
+    def test_model(self, test_env, num_iterations, true_winners = set()):
         self.initialize(test_env)
 
         times_discovered = []
+        num_iters_to_find_all_winners = 0
 
         # Sample using model greedily
+        # Test with fixed number of iterations
         for iter in range(num_iterations):
+        # Test till found all winners
+        # while self.known_winners != true_winners:
             self.reset_environment()
             self.K = frozenset(self.known_winners)
+
+            # print(self.known_winners, true_winners)
+
+            num_iters_to_find_all_winners += 1
 
             while self.at_goal_state() == -1:
                 legal_actions = self.get_legal_actions()
@@ -423,7 +480,9 @@ class RP_RL_agent():
             for c in new_winners:
                 times_discovered.append(iter)
 
-        return self.known_winners, times_discovered
+        # print("done:", num_iters_to_find_all_winners)
+
+        return self.known_winners, times_discovered, num_iters_to_find_all_winners
 
 
     def load_model(self, checkpoint_filename):
@@ -443,3 +502,28 @@ class RP_RL_agent():
         if denom == 0:
             return 0
         return num / denom
+
+    def state_as_string(self):
+        state_str = edges2string(self.G.edges(), self.I) + edges2string(self.E.edges(), self.I)
+        K_str = ""
+        for i in self.I:
+            if i in self.K:
+                K_str += "1"
+            else:
+                K_str += "0"
+        state_str += K_str
+        return state_str
+
+    def update_visited(self):
+        state_str = self.state_as_string()
+        if state_str in self.visited:
+            self.visited[state_str] += 1
+        else:
+            self.visited[state_str] = 1
+
+    def get_num_times_visited(self):
+        state_str = self.state_as_string()
+        if state_str in self.visited:
+            return self.visited[state_str]
+        return 0
+
