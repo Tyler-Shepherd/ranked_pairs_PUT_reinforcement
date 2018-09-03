@@ -88,6 +88,7 @@ def test_model(test_output_file, agent, test_filenames, true_winners):
         num_found_test += len(test_PUT_winners)
         num_total_iterations += num_iters_to_find_all_winners
 
+        # print('Took', time.perf_counter() - start_file)
         j += 1
 
     print("Test found", num_found_test, "in", num_total_iterations, "iterations, took", time.perf_counter() - start)
@@ -99,7 +100,7 @@ def test_model(test_output_file, agent, test_filenames, true_winners):
 test_every = 2500
 
 # Whether or not to test before any training
-test_at_start = 0
+test_at_start = 1
 
 # Number of iterations to use when testing
 num_test_iterations = 10
@@ -126,14 +127,18 @@ if __name__ == '__main__':
     prediction, filenames = read_Y_prediction(inf1)
     inf1.close()
 
+    # m10n10
     filenames = sorted(glob.glob('M10N10-*.csv'))
-    # filenames = sorted(glob.glob('M50N50-*.csv'))
-
-    train_filenames = filenames[6:7]
+    train_filenames = filenames[0:80000]
     test_filenames = filenames[80000:100000]
 
+    # m50n50
+    # filenames = sorted(glob.glob('M50N50-*.csv'))
+    # train_filenames = filenames[0:1]
+    # test_filenames = filenames[0:100]
+
     # Open files for output
-    output_filename = "results_" + os.path.basename(__file__)
+    output_filename = "results_" + os.path.basename(__file__) + str(random.randint(0,1000000000))
     output_filename = output_filename.replace('.py','')
     weight_filename = output_filename + "_weights.txt"
     loss_filename = output_filename + "_loss.txt"
@@ -167,6 +172,8 @@ if __name__ == '__main__':
 
     # Counter variable
     i = 0
+
+    print(output_filename)
 
     # Print header
     header = "Inputfile\tPUT-winners\tExploration Rate\tLearning Rate\tStop Conditions\tNum Nodes\tNum Winners Found\tLoss\tAvg Loss\tIs Acyclic\tRuntime"
@@ -262,7 +269,7 @@ if __name__ == '__main__':
         i += 1
 
     # Final test
-    # test_model(test_output_file, agent, test_filenames, true_winners)
+    test_model(test_output_file, agent, test_filenames, true_winners)
 
     # Close files
     output_file.close()

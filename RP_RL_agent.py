@@ -52,9 +52,10 @@ class RP_RL_agent():
     def __init__(self, learning_rate = 0, loss_output_file = None):
         # Initialize learning model
 
-        self.D_in = 8  # input dimension, 7 features + num times visited
+        self.D_in = 6
+        #self.D_in = 54  # input dimension, 7 features + num times visited
         # self.D_in = 256 + 7 # node2vec
-        self.H = 100  # hidden dimension
+        self.H = 150  # hidden dimension
         self.D_out = 1  # output dimension, just want q value
 
         self.model = torch.nn.Sequential(
@@ -128,34 +129,36 @@ class RP_RL_agent():
         bridges = set(Gc.edges()) - set(itertools.chain(*scc))
 
         # Compute cycles
-        cycles = nx.simple_cycles(Gc)
-
-        self.num_cycles = 0
-        self.edge_to_cycle_occurrence = {}
-
-        for c in cycles:
-            self.num_cycles += 1
-            for i in range(len(c) - 1):
-                e0 = c[i]
-                e1 = c[i+1]
-                e = (e0, e1)
-
-                if e not in self.edge_to_cycle_occurrence:
-                    self.edge_to_cycle_occurrence[e] = 0
-                self.edge_to_cycle_occurrence[e] += 1
-
-            e = (c[-1], c[0])
-            if e not in self.edge_to_cycle_occurrence:
-                self.edge_to_cycle_occurrence[e] = 0
-            self.edge_to_cycle_occurrence[e] += 1
+        # too slow for m50n50
+        # cycles = nx.simple_cycles(Gc)
+        #
+        # self.num_cycles = 0
+        # self.edge_to_cycle_occurrence = {}
+        #
+        # for c in cycles:
+        #     self.num_cycles += 1
+        #     for i in range(len(c) - 1):
+        #         e0 = c[i]
+        #         e1 = c[i+1]
+        #         e = (e0, e1)
+        #
+        #         if e not in self.edge_to_cycle_occurrence:
+        #             self.edge_to_cycle_occurrence[e] = 0
+        #         self.edge_to_cycle_occurrence[e] += 1
+        #
+        #     e = (c[-1], c[0])
+        #     if e not in self.edge_to_cycle_occurrence:
+        #         self.edge_to_cycle_occurrence[e] = 0
+        #     self.edge_to_cycle_occurrence[e] += 1
 
         self.G_0.add_edges_from(bridges)
         self.E_0.remove_edges_from(bridges)
 
-        node2vec_G = node2vec.Graph(self.E_0, True, self.node2vec_args.p, self.node2vec_args.q)
-        node2vec_G.preprocess_transition_probs()
-        walks = node2vec_G.simulate_walks(self.node2vec_args.num_walks, self.node2vec_args.walk_length)
-        self.node2vec_model = node2vecmain.learn_embeddings(walks, self.node2vec_args)
+        # enable for node2vec
+        # node2vec_G = node2vec.Graph(self.E_0, True, self.node2vec_args.p, self.node2vec_args.q)
+        # node2vec_G.preprocess_transition_probs()
+        # walks = node2vec_G.simulate_walks(self.node2vec_args.num_walks, self.node2vec_args.walk_length)
+        # self.node2vec_model = node2vecmain.learn_embeddings(walks, self.node2vec_args)
 
         self.visited = {}
 
@@ -242,6 +245,11 @@ class RP_RL_agent():
         print("E:", self.E.edges())
         print("K:", self.K)
 
+    # Returns array of val to each power from 1 to i
+    def polynomialize(self, val, i):
+        return [val**j for j in range(1, i+1)]
+
+
     # Returns input layer features at current state taking action a
     # a is an edge
     def state_features(self, a):
@@ -249,15 +257,32 @@ class RP_RL_agent():
         f.append(self.safe_div(self.G.out_degree(a[0]), self.E_0.out_degree(a[0])))
         f.append(self.safe_div(self.G.in_degree(a[0]), self.E_0.in_degree(a[0])))
         f.append(self.safe_div(self.G.out_degree(a[1]), self.E_0.out_degree(a[1])))
-        f.append(self.safe_div(self.G.in_degree(a[1]), self.E_0.out_degree(a[1])))
+        f.append(self.safe_div(self.G.in_degree(a[1]), self.E_0.in_degree(a[1])))
+
+        # polynomial features
+        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(a[0]), self.E_0.out_degree(a[0])), 12))
+        # f.extend(self.polynomialize(self.safe_div(self.G.in_degree(a[0]), self.E_0.in_degree(a[0])), 12))
+        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(a[1]), self.E_0.out_degree(a[1])), 12))
+        # f.extend(self.polynomialize(self.safe_div(self.G.in_degree(a[1]), self.E_0.in_degree(a[1])), 12))
+
+        # binary "has out/in degree" features
+        # f.append(2 * int(self.G.out_degree(a[0]) > 0) - 1)
+        # f.append(2 * int(self.G.in_degree(a[0]) > 0) - 1)
+        # f.append(2 * int(self.G.out_degree(a[1]) > 0) - 1)
+        # f.append(2 * int(self.G.in_degree(a[1]) > 0) - 1)
+
+        # known winners features
         f.append(2 * int(a[0] in self.K) - 1)
         f.append(2 * int(a[1] in self.K) - 1)
-        if a in self.edge_to_cycle_occurrence:
-            f.append(self.safe_div(self.edge_to_cycle_occurrence[a], self.num_cycles))
-        else:
-            f.append(0)
-        f.append(self.get_num_times_visited())
 
+        # num cycles feature
+        # if a in self.edge_to_cycle_occurrence:
+        #     f.append(self.safe_div(self.edge_to_cycle_occurrence[a], self.num_cycles))
+        # else:
+        #     f.append(0)
+        # f.append(self.get_num_times_visited())
+
+        # node2vec features
         # node2vec_u = self.node2vec_model.wv[str(a[0])]
         # node2vec_v = self.node2vec_model.wv[str(a[1])]
         # node2vec_uv = np.append(node2vec_u, node2vec_v)
@@ -481,6 +506,11 @@ class RP_RL_agent():
                 times_discovered.append(iter)
 
         # print("done:", num_iters_to_find_all_winners)
+        # print("time to make move", time_to_make_move)
+        # print("time for actions", time_for_actions)
+        # print("time for legal actions", time_for_legal_actions)
+        # print("time for rest", time_for_reset)
+        # print("time for state str", self.time_for_state_str)
 
         return self.known_winners, times_discovered, num_iters_to_find_all_winners
 

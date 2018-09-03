@@ -28,13 +28,13 @@ class RL_base():
         self.learning_rate = 0.05
         # self.learning_rate = 1.0
         self.discount_factor = 0.9
-        self.exploration_rate = 0.1
+        self.exploration_rate = 0.4
 
         # 0 = no decay
         # 1 = decay over all profiles
         # 2 = decay per profile
         self.f_learning_rate_decay = 1
-        self.f_exploration_rate_decay = True
+        self.f_exploration_rate_decay = False
 
         self.exploration_rate_start = 0.9
         self.exploration_rate_end = 0.05
