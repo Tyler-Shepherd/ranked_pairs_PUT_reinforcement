@@ -4,6 +4,7 @@ import prefpy_io
 import math
 import time
 from numpy import *
+import numpy as np
 import itertools
 from preference import Preference
 from profile import Profile
@@ -26,27 +27,36 @@ class RL_base():
     def __init__(self, num_profiles):
         # Tunable learning parameters
         self.learning_rate = 0.05
-        # self.learning_rate = 1.0
         self.discount_factor = 0.9
         self.exploration_rate = 0.4
 
         # 0 = no decay
         # 1 = decay over all profiles
         # 2 = decay per profile
+        # Note: If using Adam optimizer it doesn't matter
         self.f_learning_rate_decay = 1
-        self.f_exploration_rate_decay = False
+        self.f_exploration_rate_decay = True
 
         self.exploration_rate_start = 0.9
         self.exploration_rate_end = 0.05
-        self.exploration_rate_decay = 6000000
+        self.exploration_rate_decay = 600000
 
         self.learning_rate_start = 0.9
         self.learning_rate_end = 0.05
-        self.learning_rate_decay = 2000000
+        self.learning_rate_decay = 200000
 
         self.num_iterations = 100
 
         self.num_profiles = num_profiles
+
+        # 1 = eps greedy
+        # 2 = boltzmann
+        self.exploration_type = 1
+
+        # used in boltzmann
+        self.tau_start = 1
+        self.tau_end = 0.05
+        self.tau_decay = 2000000
 
         # debug_mode
         # = 0: no output
@@ -96,27 +106,40 @@ class RL_base():
 
                 self.exploration_rate = eps_threshold
 
-                if random.random() < eps_threshold:
-                    # Randomly select a possible action with probability epsilon
-                    i = random.randint(0, len(legal_actions) - 1)
-                    a = legal_actions[i]
-                    if self.debug_mode >= 2:
-                        print("randomly select action", a)
-                else:
-                    # Otherwise greedily choose best action
-                    max_action = None
-                    max_action_val = float("-inf")
-                    for e in legal_actions:
-                        action_Q_val = agent.get_Q_val(e)
-                        if action_Q_val > max_action_val:
-                            max_action = e
-                            max_action_val = action_Q_val
+                if self.exploration_type == 1:
+                    # epsilon greedy
+                    if random.random() < eps_threshold:
+                        # Randomly select a possible action with probability epsilon
+                        i = random.randint(0, len(legal_actions) - 1)
+                        a = legal_actions[i]
+                        if self.debug_mode >= 2:
+                            print("randomly select action", a)
+                    else:
+                        # Otherwise greedily choose best action
+                        max_action = None
+                        max_action_val = float("-inf")
+                        for e in legal_actions:
+                            action_Q_val = agent.get_Q_val(e)
+                            if action_Q_val > max_action_val:
+                                max_action = e
+                                max_action_val = action_Q_val
 
-                    a = max_action
-                    if max_action == None:
-                        print('None?')
-                    if self.debug_mode >= 2:
-                        print("greedily select action", a, "with q val", max_action_val)
+                        a = max_action
+                        if max_action == None:
+                            print('None?')
+                        if self.debug_mode >= 2:
+                            print("greedily select action", a, "with q val", max_action_val)
+                elif self.exploration_type == 2:
+                    q_vals = []
+                    tau = self.tau_end + (self.tau_start - self.tau_end) * math.exp(-1. * agent.running_nodes / self.tau_decay)
+                    for e in legal_actions:
+                        q_vals.append(exp(agent.get_Q_val(e).item() / tau))
+                    q_sum = sum(q_vals)
+                    probs = []
+                    for v in q_vals:
+                        probs.append(v / q_sum)
+                    legal_actions_index = [i for i in range(len(legal_actions))]
+                    a = legal_actions[np.random.choice(legal_actions_index, p=probs)]
 
                 assert(a is not None)
 

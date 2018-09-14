@@ -30,8 +30,7 @@ class Experience_Replay():
         self.buffer_size = buffer_size
 
         assert unusual_sample_factor <= 1, "unusual_sample_factor has to be <= 1"
-        # Setting this value to a low number over-samples experience that had unusually high or
-        # low rewards
+        # Setting this value to a low number over-samples experience that had unusually high or low rewards
         self.unusual_sample_factor = unusual_sample_factor
 
     '''
@@ -72,20 +71,30 @@ class RL_base_experience_replay():
         # 0 = no decay
         # 1 = decay over all profiles
         # 2 = decay per profile
+        # Note: If using Adam optimizer it doesn't matter
         self.f_learning_rate_decay = 1
         self.f_exploration_rate_decay = True
 
         self.exploration_rate_start = 0.9
         self.exploration_rate_end = 0.05
-        self.exploration_rate_decay = 20000
+        self.exploration_rate_decay = 600000
 
         self.learning_rate_start = 0.9
         self.learning_rate_end = 0.05
-        self.learning_rate_decay = 2000
+        self.learning_rate_decay = 200000
 
         self.num_iterations = 1000
 
         self.num_profiles = num_profiles
+
+        # 1 = eps greedy
+        # 2 = boltzmann
+        self.exploration_type = 1
+
+        # used in boltzmann
+        self.tau_start = 1
+        self.tau_end = 0.05
+        self.tau_decay = 2000000
 
         self.num_times_trained = 0
         self.train_every_iterations = 200
@@ -140,27 +149,44 @@ class RL_base_experience_replay():
 
                 self.exploration_rate = eps_threshold
 
-                if random.random() < eps_threshold:
-                    # Randomly select a possible action with probability epsilon
-                    i = random.randint(0, len(legal_actions) - 1)
-                    a = legal_actions[i]
-                    if self.debug_mode >= 2:
-                        print("randomly select action", a)
-                else:
-                    # Otherwise greedily choose best action
-                    max_action = None
-                    max_action_val = float("-inf")
+                if self.exploration_type == 1:
+                    # epsilon greedy
+                    if random.random() < eps_threshold:
+                        # Randomly select a possible action with probability epsilon
+                        i = random.randint(0, len(legal_actions) - 1)
+                        a = legal_actions[i]
+                        if self.debug_mode >= 2:
+                            print("randomly select action", a)
+                    else:
+                        # Otherwise greedily choose best action
+                        max_action = None
+                        max_action_val = float("-inf")
+                        for e in legal_actions:
+                            action_Q_val = agent.get_Q_val(e)
+                            if action_Q_val > max_action_val:
+                                max_action = e
+                                max_action_val = action_Q_val
+
+                        a = max_action
+                        if max_action == None:
+                            print('None?')
+                        if self.debug_mode >= 2:
+                            print("greedily select action", a, "with q val", max_action_val)
+                elif self.exploration_type == 2:
+                    q_vals = []
+                    tau = self.tau_end + (self.tau_start - self.tau_end) * math.exp(-1. * agent.running_nodes / self.tau_decay)
                     for e in legal_actions:
-                        action_Q_val = agent.get_Q_val(e)
-                        if action_Q_val > max_action_val:
-                            max_action = e
-                            max_action_val = action_Q_val
+                        q_vals.append(exp(agent.get_Q_val(e).item() / tau))
+                    q_sum = sum(q_vals)
+                    probs = []
+                    for v in q_vals:
+                        probs.append(v / q_sum)
+                    legal_actions_index = [i for i in range(len(legal_actions))]
+                    a = legal_actions[np.random.choice(legal_actions_index, p=probs)]
 
-                    a = max_action
-                    if self.debug_mode >= 2:
-                        print("greedily select action", a, "with q val", max_action_val)
+                assert (a is not None)
 
-                # Take the action and update q vals
+                # Take the action
                 self.update_q(agent, a)
 
             # Reached goal state
@@ -176,14 +202,11 @@ class RL_base_experience_replay():
                 # TODO fix
                 self.learning_rate = (self.num_iterations*self.num_profiles) / (self.num_iterations*self.num_profiles + iter * iter)
 
-            if iter % self.train_every_iterations == 0:
+            if iter != 0 and iter % self.train_every_iterations == 0:
                 self.train(agent)
 
-            # if self.f_exploration_rate_decay:
-            #     self.exploration_rate = (self.num_iterations * self.num_profiles) / (self.num_iterations * self.num_profiles + iter * iter)
-
         if self.debug_mode >= 2:
-            agent.print_model()
+            agent.print_model("")
 
         return agent
 
@@ -198,8 +221,6 @@ class RL_base_experience_replay():
         experience.append(agent.get_current_state())
         experience.append(a)
 
-        # old_q_value = agent.get_Q_val(a)
-
         # Actually updates the agent state
         agent.make_move(a, f_testing=True)
 
@@ -208,18 +229,6 @@ class RL_base_experience_replay():
         experience.append(new_reward)
         experience.append(agent.get_current_state())
         experience.append(agent.at_goal_state() != -1)
-
-        # Get the maximum estimated q value of all possible actions after adding a
-        # max_next_q_val = float("-inf")
-        # next_legal_actions = agent.get_legal_actions()
-        # if len(next_legal_actions) == 0:
-        #     # If there are no legal next actions, then we've reached a goal state
-        #     # Estimate of next state is just 0 (since there is no next state)
-        #     max_next_q_val = 0
-        # for e in next_legal_actions:
-        #     max_next_q_val = max(max_next_q_val, agent.get_Q_val(e))
-        # new_q_value = new_reward + self.discount_factor * max_next_q_val
-        # agent.update_q(self.learning_rate, old_q_value, new_q_value)
 
         self.buffer.add([experience])
 
@@ -257,9 +266,11 @@ class RL_base_experience_replay():
 
             agent.update_q(self.learning_rate, old_q_value, new_q_value)
 
-        print(self.num_times_trained, ":*******LOSS:", agent.running_loss)
+        # avg loss per iteration
+        loss_avg = agent.running_loss / self.train_every_iterations
+        print(self.num_times_trained, ":*******LOSS:", loss_avg)
         if agent.loss_output_file:
-            agent.loss_output_file.write(str(self.num_times_trained) + '\t' + str(agent.running_loss) + '\n')
+            agent.loss_output_file.write(str(self.num_times_trained) + '\t' + str(loss_avg) + '\n')
             agent.loss_output_file.flush()
 
         agent.running_loss = 0

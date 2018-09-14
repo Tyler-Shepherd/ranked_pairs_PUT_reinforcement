@@ -64,24 +64,28 @@ def read_Y_prediction(inputfile):
 
     return Y, filenames
 
-def test_model(test_output_file, agent, test_filenames, true_winners):
+def test_model(test_output_file, agent, test_filenames, true_winners, model_id):
     # Test the agents learned model
 
     num_found_test = 0
     num_total_iterations = 0
     j = 0
 
-    agent.save_model()
+    agent.save_model(model_id)
 
     print("Starting test")
 
     start = time.perf_counter()
+
+    max_num_winners = 0
 
     for test_inputfile in test_filenames:
         test_profile = read_profile(test_inputfile)
 
         # print("Testing", test_inputfile)
         winners = set(true_winners[j])
+        # winners = set()
+        start_file = time.perf_counter()
 
         test_PUT_winners, times_discovered, num_iters_to_find_all_winners = agent.test_model(test_profile, num_test_iterations, winners)
 
@@ -89,29 +93,38 @@ def test_model(test_output_file, agent, test_filenames, true_winners):
         num_total_iterations += num_iters_to_find_all_winners
 
         # print('Took', time.perf_counter() - start_file)
+        print(test_inputfile, test_PUT_winners, winners)
+        missed_winners = winners - test_PUT_winners
+        test_output_file.write(str(test_inputfile) + '\t' + str(list(test_PUT_winners)) + '\t' + str(list(winners)) + '\t' + str(list(missed_winners)) + '\t' + str(len(list(missed_winners))) + '\n')
+        test_output_file.flush()
+        max_num_winners = max(max_num_winners, len(test_PUT_winners))
         j += 1
 
     print("Test found", num_found_test, "in", num_total_iterations, "iterations, took", time.perf_counter() - start)
+    # print("max num winners", max_num_winners)
     test_output_file.write(str(i) + "\t" + str(num_found_test) + "\t" + str(num_total_iterations) + "\n")
     test_output_file.flush()
 
 
 # After how many profiles to test the model
-test_every = 2500
+test_every = 500
 
 # Whether or not to test before any training
 test_at_start = 1
 
+shuffle_training_data = 1
+
 # Number of iterations to use when testing
-num_test_iterations = 10
+num_test_iterations = 5
 
 # Whether to initialize model from default values (for comparison purposes)
-f_start_from_default = 0
+f_start_from_default = 1
 
 f_experience_replay = 0
 
 # Path to default model (used only if f_start_from_default)
-default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\data\\\\m10n10-100k\\default_agent_7_features.pth.tar"
+# default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\data\\\\m10n10-100k\\default_agent_7_features.pth.tar"
+default_model_path = "C:\\Users\\shepht2\\Documents\\School\\Masters\\STV Ranked Pairs\\RL\\results\\9-12\\results_RP_RL_main731959360_model.pth.tar"
 
 
 if __name__ == '__main__':
@@ -119,6 +132,8 @@ if __name__ == '__main__':
     # Set random seeds
     random.seed(time.time())
     torch.manual_seed(time.time())
+
+    start_everything = time.perf_counter()
 
     # Read the filenames
     os.chdir(rpconfig.path)
@@ -129,8 +144,12 @@ if __name__ == '__main__':
 
     # m10n10
     filenames = sorted(glob.glob('M10N10-*.csv'))
-    train_filenames = filenames[0:80000]
+    train_filenames = filenames[0:5000]
     test_filenames = filenames[80000:100000]
+
+    # debugging
+    # train_filenames = ['meh']
+    # test_filenames = ['4circle.soc']
 
     # m50n50
     # filenames = sorted(glob.glob('M50N50-*.csv'))
@@ -138,7 +157,9 @@ if __name__ == '__main__':
     # test_filenames = filenames[0:100]
 
     # Open files for output
-    output_filename = "results_" + os.path.basename(__file__) + str(random.randint(0,1000000000))
+    model_id = random.randint(0,1000000000)
+
+    output_filename = "results_" + os.path.basename(__file__) + str(model_id)
     output_filename = output_filename.replace('.py','')
     weight_filename = output_filename + "_weights.txt"
     loss_filename = output_filename + "_loss.txt"
@@ -160,7 +181,6 @@ if __name__ == '__main__':
 
     # Create agent
     agent = RP_RL_agent(base.learning_rate, loss_file)
-    # agent = RP_RL_agent_node2vec(base.learning_rate)
 
     if f_start_from_default:
         agent.load_model(default_model_path)
@@ -186,6 +206,7 @@ if __name__ == '__main__':
     parameters_file.write("Num Testing Data\t" + str(len(test_filenames)) + '\n')
     parameters_file.write("Train from...to\t" + train_filenames[0] + "\t" + train_filenames[-1] + '\n')
     parameters_file.write("Test from...to\t" + test_filenames[0] + "\t" + test_filenames[-1] + '\n')
+    parameters_file.write("Training Data Shuffled\t" + str(shuffle_training_data) + '\n')
     parameters_file.write("Learning Rate\t" + str(base.learning_rate) + '\n')
     parameters_file.write("Learning Rate Decay\t" + str(base.f_learning_rate_decay) + '\n')
     if base.f_learning_rate_decay == 1:
@@ -195,6 +216,7 @@ if __name__ == '__main__':
     parameters_file.write("Discount Factor\t" + str(base.discount_factor) + '\n')
     parameters_file.write("Exploration Rate\t" + str(base.exploration_rate) + '\n')
     parameters_file.write("Exploration Rate Decay\t" + str(base.f_exploration_rate_decay) + '\n')
+    parameters_file.write("Exploration Type\t" + str(base.exploration_type) + '\n')
     if base.f_exploration_rate_decay:
         parameters_file.write("Exploration Rate Decay Start\t" + str(base.exploration_rate_start) + '\n')
         parameters_file.write("Exploration Rate Decay End\t" + str(base.exploration_rate_end) + '\n')
@@ -203,6 +225,9 @@ if __name__ == '__main__':
     parameters_file.write("Agent D_in\t" + str(agent.D_in) + '\n')
     parameters_file.write("Agent H\t" + str(agent.H) + '\n')
     parameters_file.write("Agent D_out\t" + str(agent.D_out) + '\n')
+    parameters_file.write("Num Polynomial Features\t" + str(agent.num_polynomial) + '\n')
+    parameters_file.write("Use Visited Set\t" + str(agent.use_visited) + '\n')
+    parameters_file.write("Use Cycles\t" + str(agent.use_cycles) + '\n')
     parameters_file.write("Agent Model\t" + str(agent.model) + '\n')
     parameters_file.write("Agent Loss Function\t" + str(agent.loss_fn) + '\n')
     parameters_file.write("Agent Optimizer Type\t" + str(agent.optimizer_type) + '\n')
@@ -222,6 +247,9 @@ if __name__ == '__main__':
 
     parameters_file.flush()
 
+    if shuffle_training_data:
+        random.shuffle(train_filenames)
+
     # read true winners
     true_winners = []
     winners_file = open("../../Winners/winners_m10n10-100k_last_20k.txt", 'r')
@@ -237,7 +265,8 @@ if __name__ == '__main__':
 
     for inputfile in train_filenames:
         if i % test_every == 0 and (test_at_start or i != 0):
-            test_model(test_output_file, agent, test_filenames, true_winners)
+            print("output:", output_filename)
+            test_model(test_output_file, agent, test_filenames, true_winners, model_id)
 
         profile = read_profile(inputfile)
 
@@ -259,7 +288,8 @@ if __name__ == '__main__':
 
         is_acyclic = str(nx.is_directed_acyclic_graph(agent.E_0))
 
-        result_text = "%s\t%r\t%f\t%f\t%r\t%d\t%d\t%f\t%f\t%s\t%f" % (inputfile, PUT_winners, base.exploration_rate, base.learning_rate, stats.stop_condition_hits, stats.num_nodes, len(PUT_winners), stats.running_loss, avg_loss_per_node, is_acyclic, end - start)
+        result_text = "%s\t%r\t%f\t%f\t%r\t%d\t%d\t%f\t%f\t%s\t%f" % \
+                      (inputfile, PUT_winners, base.exploration_rate, base.learning_rate, stats.stop_condition_hits, stats.num_nodes, len(PUT_winners), stats.running_loss, avg_loss_per_node, is_acyclic, end - start)
         print(i, result_text)
         output_file.write(result_text + '\n')
         output_file.flush()
@@ -269,7 +299,13 @@ if __name__ == '__main__':
         i += 1
 
     # Final test
-    test_model(test_output_file, agent, test_filenames, true_winners)
+    print("output:", output_filename)
+    test_model(test_output_file, agent, test_filenames, true_winners, model_id)
+
+    print("Total Time to Train: %f" % total_time)
+    print("Average Time: %f" % (total_time / num_profiles))
+
+    print("Total Runtime: %f" % (time.perf_counter() - start_everything))
 
     # Close files
     output_file.close()
@@ -277,5 +313,3 @@ if __name__ == '__main__':
     test_output_file.close()
     parameters_file.close()
 
-    print("Total Time to Train: %f" % total_time)
-    print("Average Time: %f" % (total_time / num_profiles))

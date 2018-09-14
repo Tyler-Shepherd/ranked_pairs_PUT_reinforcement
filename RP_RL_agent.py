@@ -12,6 +12,8 @@ from profile import Profile
 import copy
 import sys
 import networkx as nx
+from networkx.algorithms.connectivity import local_edge_connectivity
+from networkx.algorithms.connectivity import local_node_connectivity
 import rpconfig
 from collections import defaultdict
 import matplotlib.pyplot as plt
@@ -34,6 +36,15 @@ class RP_RL_stats():
         # loss over entire profile
         self.running_loss = 0
 
+        self.time_for_node2vec = 0
+        self.time_for_G_with_weights = 0
+        self.time_for_node2vecgraph = 0
+        self.time_for_node2vectransitions = 0
+        self.time_for_simulate_walks = 0
+
+        # cycles, visited, adjacency
+        self.time_for_features = [0, 0, 0]
+
 # Util functions
 def init_weights(m):
     if type(m) == torch.nn.Linear:
@@ -48,14 +59,140 @@ def edges2string(edges, I):
 
     return ''.join(gstring)
 
+# computes the plurality scores of candidates given an input profile
+# input: profile of preferences as np matrix
+# output: m-vector of plurality scores of candidates, normalized by n
+def plurality_score(profile_matrix):
+    (n,m) = np.shape(profile_matrix)
+    pluralityscores = [0] * m
+    for i in range(n):
+        pluralityscores[profile_matrix[i,0]] += 1
+    pluralityscores_normalized = list(1.*np.array(pluralityscores)/n)
+    return pluralityscores_normalized
+
+#computes the Borda scores of candidates given an input profile
+# input: profile
+# output: m-vector of Borda scores of candidates, normalized by n(m-1)
+def borda_score(profile_matrix):
+    (n,m) = np.shape(profile_matrix)
+    bordascores = [0] * m
+    for i in range(n):
+        for j in range(m):
+            bordascores[profile_matrix[i,j]] += (m - j)
+    bordascores_normalized = list(1.*np.array(bordascores)/(n*(m-1)))
+    return bordascores_normalized
+
+#computes the Copeland scores of candidates
+# input: wmg dict
+# output: m-vector of Copeland scores of candidates, normalized by m-1 to [-1, 1]
+def copeland_score(wmg):
+    m = len(wmg.keys())
+    copelandscores = [0] * m
+    for cand1, cand2 in itertools.permutations(wmg.keys(), 2):
+        if wmg[cand1][cand2] > 0:
+            copelandscores[cand1] += 1
+            copelandscores[cand2] -= 1
+    copelandscores_normalized = list(1.*np.array(copelandscores)/(m-1))
+    return copelandscores_normalized
+
+#computes the Maximin scores of candidates
+# input: wmg dict
+# output: m-vector of Maximin scores of candidates, normalized by n to [-1, 1]
+def maximin_score(wmg):
+    n = len(wmg.keys())
+    maximinscores = [0] * n
+    for cand in wmg.keys():
+        maximinscores[cand] = min(i for (_, i) in wmg[cand].items())
+
+    maximinscores_normalized = list(1.*np.array(maximinscores)/n)
+    return maximinscores_normalized
+
+# just vectorizes the wmg
+# input: wmg
+# output: vectorized weighted majority graph. sorted by candidates, then by opponents,
+#   normalized by no. of voters
+def vectorize_wmg(wmg):
+    m = len(wmg)
+    n = np.sum(np.abs([wmg[0][i] for i in range(1,m)]))
+    wmg_vec = [wmg[i][j] for i in range(m) for j in range(m) if not j == i]
+    wmg_vec_normalized = list(1.*np.array(wmg_vec)/n)
+    return wmg_vec_normalized
+
+
+# creates a positional matrix and vectorizes it
+# input: profile
+# intermediate: positional matrix posmat
+#   posmat[i][j] = # voters ranking candidate i in position j
+# output: vectorized positional matrix, sorted by candidate, then by position,
+#   normalized by no. of voters
+def profile2posmat(profile_matrix):
+    (n,m) = np.shape(profile_matrix)
+    posmat = np.zeros((m,m))
+
+    for i in range(n):
+        vote = profile_matrix[i, :]
+        for pos in range(m):
+            cand = vote[0, pos]
+            posmat[cand][pos] += 1
+    posmat_vec = posmat.flatten()
+    posmat_vec_normalized = list(1.*np.array(posmat_vec)/n)
+    return posmat_vec_normalized
+
+# For node s, avg over all other nodes t of local edge connectivity = num edges needed to remove to disconnect s and t
+def avg_edge_connectivity(G, I, s):
+    total_connectivity = 0
+    for t in I:
+        if t != s:
+            total_connectivity += local_edge_connectivity(G, s, t)
+
+    avg_connectivity = total_connectivity / (len(I) - 1)
+    # TODO: normalize
+    return avg_connectivity
+
+# For node s, avg over all other nodes t of local node connectivity = num nodes needed to remove to disconnect s and t
+def avg_node_connectivity(G, I, s):
+    total_connectivity = 0
+    for t in I:
+        if t != s:
+            total_connectivity += local_node_connectivity(G, s, t)
+
+    avg_connectivity = total_connectivity / (len(I) - 1)
+    # TODO: normalize
+    return avg_connectivity
+
+
+
 class RP_RL_agent():
     def __init__(self, learning_rate = 0, loss_output_file = None):
         # Initialize learning model
 
-        self.D_in = 6
-        #self.D_in = 54  # input dimension, 7 features + num times visited
-        # self.D_in = 256 + 7 # node2vec
-        self.H = 150  # hidden dimension
+        self.num_polynomial = 4
+        self.use_visited = True
+        self.use_cycles = False
+
+        self.m = 10.0
+        self.n = 10.0
+
+        self.D_in = 0
+        # self.D_in += self.num_polynomial * 6 + 4 + 2 + self.num_polynomial * 8 + self.num_polynomial  # out/in, out/in binary, known winners, voting rules, edge weight
+        # self.D_in += 256 # node2vec
+
+        if self.use_visited:
+            self.D_in += self.num_polynomial
+
+        if self.use_cycles:
+            self.D_in += self.num_polynomial
+
+        # self.D_in += self.m * (self.m-1) # vectorized wmg
+        # self.D_in += self.m * self.m # posmat
+        self.D_in += self.m * self.m # adjacency matrix
+        # self.D_in += self.m * self.m # tier adjacency matrix
+        # self.D_in += self.num_polynomial * 4 # edge and node connectivity
+        self.D_in += self.m # K representation
+
+        self.D_in = int(self.D_in)
+
+        self.H = 10000 # hidden dimension
         self.D_out = 1  # output dimension, just want q value
 
         self.model = torch.nn.Sequential(
@@ -97,6 +234,9 @@ class RP_RL_agent():
         self.node2vec_args.unweighted = True
         self.node2vec_args.undirected = False
         self.node2vec_args.output = "node2vec_output.emb"
+        # self.node2vec_args.num_walks = 1
+        # self.node2vec_args.walk_length = 1
+        # self.node2vec_args.dimensions = 2
 
         self.debug_mode = 0
 
@@ -112,44 +252,54 @@ class RP_RL_agent():
         self.known_winners = set()
         self.I = list(wmg.keys())
 
+        # save profile as matrix for use in features
+        profile_matrix = []
+        for p in env0.preferences:
+            profile_matrix.append(p.getOrderVector())
+        self.profile_matrix = np.asmatrix(profile_matrix)
+
         self.G_0 = nx.DiGraph()
         self.G_0.add_nodes_from(self.I)
 
         self.E_0 = nx.DiGraph()
         self.E_0.add_nodes_from(self.I)
+        self.max_edge_weight = 0
         for cand1, cand2 in itertools.permutations(wmg.keys(), 2):
             if wmg[cand1][cand2] > 0:
                 self.E_0.add_edge(cand1, cand2, weight=wmg[cand1][cand2])
+                self.max_edge_weight = max(self.max_edge_weight, wmg[cand1][cand2])
+
+        self.E_0_really = self.E_0.copy()
 
         # Add any bridge edges from any tier in E_0 to G_0
         # These are guaranteed to never be in a cycle, so will always be in the final graph after RP procedure
-        Gc = self.G_0.copy()
-        Gc.add_edges_from(self.E_0.edges())
+        Gc = self.E_0.copy()
         scc = [list(g.edges()) for g in nx.strongly_connected_component_subgraphs(Gc, copy=True) if len(g.edges()) != 0]
         bridges = set(Gc.edges()) - set(itertools.chain(*scc))
 
         # Compute cycles
         # too slow for m50n50
-        # cycles = nx.simple_cycles(Gc)
-        #
-        # self.num_cycles = 0
-        # self.edge_to_cycle_occurrence = {}
-        #
-        # for c in cycles:
-        #     self.num_cycles += 1
-        #     for i in range(len(c) - 1):
-        #         e0 = c[i]
-        #         e1 = c[i+1]
-        #         e = (e0, e1)
-        #
-        #         if e not in self.edge_to_cycle_occurrence:
-        #             self.edge_to_cycle_occurrence[e] = 0
-        #         self.edge_to_cycle_occurrence[e] += 1
-        #
-        #     e = (c[-1], c[0])
-        #     if e not in self.edge_to_cycle_occurrence:
-        #         self.edge_to_cycle_occurrence[e] = 0
-        #     self.edge_to_cycle_occurrence[e] += 1
+        if self.use_cycles:
+            cycles = nx.simple_cycles(Gc)
+
+            self.num_cycles = 0
+            self.edge_to_cycle_occurrence = {}
+
+            for c in cycles:
+                self.num_cycles += 1
+                for i in range(len(c) - 1):
+                    e0 = c[i]
+                    e1 = c[i+1]
+                    e = (e0, e1)
+
+                    if e not in self.edge_to_cycle_occurrence:
+                        self.edge_to_cycle_occurrence[e] = 0
+                    self.edge_to_cycle_occurrence[e] += 1
+
+                e = (c[-1], c[0])
+                if e not in self.edge_to_cycle_occurrence:
+                    self.edge_to_cycle_occurrence[e] = 0
+                self.edge_to_cycle_occurrence[e] += 1
 
         self.G_0.add_edges_from(bridges)
         self.E_0.remove_edges_from(bridges)
@@ -161,6 +311,16 @@ class RP_RL_agent():
         # self.node2vec_model = node2vecmain.learn_embeddings(walks, self.node2vec_args)
 
         self.visited = {}
+
+        # compute voting rules scores
+        self.plurality_scores = plurality_score(self.profile_matrix)
+        self.borda_scores = borda_score(self.profile_matrix)
+        self.copeland_scores = copeland_score(wmg)
+        self.maximin_scores = maximin_score(wmg)
+
+        self.vectorized_wmg = vectorize_wmg(wmg)
+        self.posmat = profile2posmat(self.profile_matrix)
+        self.adjacency_0 = nx.adjacency_matrix(self.E_0_really, nodelist=self.I).todense()
 
         self.stats = RP_RL_stats()
 
@@ -180,7 +340,8 @@ class RP_RL_agent():
                 self.K.add(a)
         self.K = frozenset(self.K)
 
-        self.update_visited()
+        if self.use_visited:
+            self.update_visited()
 
     '''
     Returns -1 if not at goal state
@@ -188,27 +349,27 @@ class RP_RL_agent():
     Returns 2 if pruned
     Returns 3 if only one possible winner
     '''
-    def at_goal_state(self):
+    def at_goal_state(self, update_stats = 1):
         in_deg = self.G.in_degree(self.I)
         possible_winners = [x[0] for x in in_deg if x[1] == 0]
 
         # Stop Condition 2: Pruning. Possible winners are subset of known winners
         if set(possible_winners) <= self.K:
-            self.stats.stop_condition_hits[2] += 1
+            self.stats.stop_condition_hits[2] += (1 * update_stats)
             if self.debug_mode >= 3:
                 print("at_goal_state: 2")
             return 2
 
         # Stop Condition 1: E has no more edges
         if len(self.E.edges()) == 0:
-            self.stats.stop_condition_hits[1] += 1
+            self.stats.stop_condition_hits[1] += (1 * update_stats)
             if self.debug_mode >= 3:
                 print("at_goal_state: 1")
             return 1
 
         # Stop Condition 3: Exactly one node has indegree 0
         if len(possible_winners) == 1:
-            self.stats.stop_condition_hits[3] += 1
+            self.stats.stop_condition_hits[3] += (1 * update_stats)
             if self.debug_mode >= 3:
                 print("at_goal_state: 3")
             return 3
@@ -253,40 +414,107 @@ class RP_RL_agent():
     # Returns input layer features at current state taking action a
     # a is an edge
     def state_features(self, a):
-        f = []
-        f.append(self.safe_div(self.G.out_degree(a[0]), self.E_0.out_degree(a[0])))
-        f.append(self.safe_div(self.G.in_degree(a[0]), self.E_0.in_degree(a[0])))
-        f.append(self.safe_div(self.G.out_degree(a[1]), self.E_0.out_degree(a[1])))
-        f.append(self.safe_div(self.G.in_degree(a[1]), self.E_0.in_degree(a[1])))
+        u = a[0]
+        v = a[1]
 
-        # polynomial features
-        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(a[0]), self.E_0.out_degree(a[0])), 12))
-        # f.extend(self.polynomialize(self.safe_div(self.G.in_degree(a[0]), self.E_0.in_degree(a[0])), 12))
-        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(a[1]), self.E_0.out_degree(a[1])), 12))
-        # f.extend(self.polynomialize(self.safe_div(self.G.in_degree(a[1]), self.E_0.in_degree(a[1])), 12))
+        f = []
+
+        # out/in degree
+        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(u), self.E_0.out_degree(u)), self.num_polynomial))
+        # f.extend(self.polynomialize(self.safe_div(self.G.in_degree(u), self.E_0.in_degree(u)), self.num_polynomial))
+        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(v), self.E_0.out_degree(v)), self.num_polynomial))
+        # f.extend(self.polynomialize(self.safe_div(self.G.in_degree(v), self.E_0.in_degree(v)), self.num_polynomial))
+
+        # total degree
+        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(u) + self.G.in_degree(u), self.E_0.out_degree(u) + self.E_0.in_degree(u)), self.num_polynomial))
+        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(v) + self.G.in_degree(v), self.E_0.out_degree(v) + self.E_0.in_degree(v)), self.num_polynomial))
 
         # binary "has out/in degree" features
-        # f.append(2 * int(self.G.out_degree(a[0]) > 0) - 1)
-        # f.append(2 * int(self.G.in_degree(a[0]) > 0) - 1)
-        # f.append(2 * int(self.G.out_degree(a[1]) > 0) - 1)
-        # f.append(2 * int(self.G.in_degree(a[1]) > 0) - 1)
+        # f.append(2 * int(self.G.out_degree(u) > 0) - 1)
+        # f.append(2 * int(self.G.in_degree(u) > 0) - 1)
+        # f.append(2 * int(self.G.out_degree(v) > 0) - 1)
+        # f.append(2 * int(self.G.in_degree(v) > 0) - 1)
 
         # known winners features
-        f.append(2 * int(a[0] in self.K) - 1)
-        f.append(2 * int(a[1] in self.K) - 1)
+        # f.append(2 * int(u in self.K) - 1)
+        # f.append(2 * int(v in self.K) - 1)
+
+        # voting rules scores
+        # f.extend(self.polynomialize(self.plurality_scores[u], self.num_polynomial))
+        # f.extend(self.polynomialize(self.plurality_scores[v], self.num_polynomial))
+        # f.extend(self.polynomialize(self.borda_scores[u], self.num_polynomial))
+        # f.extend(self.polynomialize(self.borda_scores[v], self.num_polynomial))
+        # f.extend(self.polynomialize(self.copeland_scores[u], self.num_polynomial))
+        # f.extend(self.polynomialize(self.copeland_scores[v], self.num_polynomial))
+        # f.extend(self.polynomialize(self.maximin_scores[u], self.num_polynomial))
+        # f.extend(self.polynomialize(self.maximin_scores[v], self.num_polynomial))
+
+        # f.extend(self.vectorized_wmg)
+        # f.extend(self.posmat)
 
         # num cycles feature
-        # if a in self.edge_to_cycle_occurrence:
-        #     f.append(self.safe_div(self.edge_to_cycle_occurrence[a], self.num_cycles))
-        # else:
-        #     f.append(0)
-        # f.append(self.get_num_times_visited())
+        if self.use_cycles:
+            if a in self.edge_to_cycle_occurrence:
+                f.extend(self.polynomialize(self.safe_div(self.edge_to_cycle_occurrence[a], self.num_cycles), self.num_polynomial))
+            else:
+                f.extend(self.polynomialize(0, self.num_polynomial))
+
+        # visited feature
+        if self.use_visited:
+            f.extend(self.polynomialize(self.get_num_times_visited(), self.num_polynomial))
+
+        # edge weight
+        # f.extend(self.polynomialize(self.E_0_really[u][v]['weight'] / self.max_edge_weight, self.num_polynomial))
+
+        # adjacency matrix if a is added
+        self.G.add_edge(u,v)
+        adjacency = nx.adjacency_matrix(self.G, nodelist = self.I).todense()
+        adjacency = np.multiply(adjacency, self.adjacency_0)
+        adjacency_normalized = np.divide(adjacency, self.n)
+        f.extend(adjacency_normalized.flatten().tolist()[0])
+        self.G.remove_edge(u,v)
+
+        # K representation
+        K_list = []
+        for i in self.I:
+            if i in self.K:
+                K_list.append(1)
+            else:
+                K_list.append(0)
+        f.extend(K_list)
+
+        # tier adjacency matrix
+        # legal_actions = self.get_legal_actions()
+        # legal_actions.remove(a)
+        # T = np.zeros((int(self.m), int(self.m)))
+        # for (c1,c2) in legal_actions:
+        #     T[c1,c2] = 1
+        # T_vec = list(T.flatten())
+        # f.extend(T_vec)
+
+        # edge connectivity
+        # f.extend(self.polynomialize(avg_edge_connectivity(self.G, self.I, u), self.num_polynomial))
+        # f.extend(self.polynomialize(avg_edge_connectivity(self.G, self.I, v), self.num_polynomial))
+
+        # node connectivity
+        # f.extend(self.polynomialize(avg_node_connectivity(self.G, self.I, u), self.num_polynomial))
+        # f.extend(self.polynomialize(avg_node_connectivity(self.G, self.I, v), self.num_polynomial))
+
+        # node2vec every time
+        # G_with_weights = nx.DiGraph()
+        # G_with_weights.add_nodes_from(self.I)
+        # for (cand1, cand2) in self.G.edges():
+        #     G_with_weights.add_edge(cand1, cand2, weight=self.E_0_really[cand1][cand2]['weight'])
+        # node2vec_G = node2vec.Graph(G_with_weights, True, self.node2vec_args.p, self.node2vec_args.q)
+        # node2vec_G.preprocess_transition_probs()
+        # walks = node2vec_G.simulate_walks(self.node2vec_args.num_walks, self.node2vec_args.walk_length)
+        # self.node2vec_model = node2vecmain.learn_embeddings(walks, self.node2vec_args)
 
         # node2vec features
-        # node2vec_u = self.node2vec_model.wv[str(a[0])]
-        # node2vec_v = self.node2vec_model.wv[str(a[1])]
+        # node2vec_u = self.node2vec_model.wv[str(u)]
+        # node2vec_v = self.node2vec_model.wv[str(v)]
         # node2vec_uv = np.append(node2vec_u, node2vec_v)
-        #
+
         # node2vec_f = np.append(node2vec_uv, np.array(f))
 
         if self.debug_mode >= 3:
@@ -372,15 +600,16 @@ class RP_RL_agent():
 
         self.stats.num_nodes += 1
 
-        self.update_visited()
+        if self.use_visited:
+            self.update_visited()
 
         if not f_testing:
             self.running_nodes += 1
 
             if self.running_nodes % self.print_loss_every == 0:
-                print("*******LOSS:", self.running_loss)
+                print("*******LOSS:", self.running_loss / self.print_loss_every)
                 if self.loss_output_file:
-                    self.loss_output_file.write(str(self.running_nodes) + '\t' + str(self.running_loss) + '\n')
+                    self.loss_output_file.write(str(self.running_nodes) + '\t' + str(self.running_loss / self.print_loss_every) + '\n')
                     self.loss_output_file.flush()
 
                 self.running_loss = 0
@@ -388,7 +617,7 @@ class RP_RL_agent():
 
 
     def reward(self):
-        current_state = self.at_goal_state()
+        current_state = self.at_goal_state(update_stats=0)
 
         if current_state == -1:
             # Not a goal state
@@ -454,9 +683,9 @@ class RP_RL_agent():
             self.optimizer.step()
 
 
-    def save_model(self):
+    def save_model(self, id):
         # Save the model
-        torch.save(self.model.state_dict(), "checkpoint.pth.tar")
+        torch.save(self.model.state_dict(), "results_RP_RL_main" + str(id) + "_model.pth.tar")
         print("model saved")
 
 
@@ -497,6 +726,8 @@ class RP_RL_agent():
                         max_action = e
                         max_action_val = action_val
 
+                assert (max_action is not None)
+
                 self.make_move(max_action, f_testing = True)
 
             # At goal state
@@ -518,6 +749,7 @@ class RP_RL_agent():
     def load_model(self, checkpoint_filename):
         checkpoint = torch.load(checkpoint_filename)
         self.model.load_state_dict(checkpoint)
+        print("loaded model")
 
     def get_current_state(self):
         return [self.G.copy(), self.E.copy(), self.K.copy()]
