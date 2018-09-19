@@ -83,6 +83,9 @@ class RL_base_experience_replay():
         self.learning_rate_end = 0.05
         self.learning_rate_decay = 200000
 
+        # after how many training iterations to update the target network to the agent's learned network
+        self.update_target_network_every = 3
+
         self.num_iterations = 1000
 
         self.num_profiles = num_profiles
@@ -203,6 +206,7 @@ class RL_base_experience_replay():
                 self.learning_rate = (self.num_iterations*self.num_profiles) / (self.num_iterations*self.num_profiles + iter * iter)
 
             if iter != 0 and iter % self.train_every_iterations == 0:
+                # print("Training iter", iter)
                 self.train(agent)
 
         if self.debug_mode >= 2:
@@ -237,6 +241,9 @@ class RL_base_experience_replay():
     Samples from experience replay buffer to train agent
     '''
     def train(self, agent):
+        if len(self.buffer.buffer) == 0:
+            # Nothing in buffer, nothing to train
+            return
         samples = self.buffer.sample(self.batch_size)
 
         for s in samples:
@@ -261,7 +268,7 @@ class RL_base_experience_replay():
                 # Estimate of next state is just 0 (since there is no next state)
                 max_next_q_val = 0
             for e in next_legal_actions:
-                max_next_q_val = max(max_next_q_val, agent.get_Q_val(e))
+                max_next_q_val = max(max_next_q_val, agent.get_Q_val(e, use_target_net=True))
             new_q_value = reward + self.discount_factor * max_next_q_val
 
             agent.update_q(self.learning_rate, old_q_value, new_q_value)
@@ -275,3 +282,7 @@ class RL_base_experience_replay():
 
         agent.running_loss = 0
         self.num_times_trained += 1
+
+        # update target network
+        if self.num_times_trained % self.update_target_network_every == 0:
+            agent.target_model.load_state_dict(agent.model.state_dict())

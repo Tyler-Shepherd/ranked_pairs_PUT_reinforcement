@@ -83,8 +83,8 @@ def test_model(test_output_file, agent, test_filenames, true_winners, model_id):
         test_profile = read_profile(test_inputfile)
 
         # print("Testing", test_inputfile)
-        winners = set(true_winners[j])
-        # winners = set()
+        # winners = set(true_winners[j])
+        winners = set()
         start_file = time.perf_counter()
 
         test_PUT_winners, times_discovered, num_iters_to_find_all_winners = agent.test_model(test_profile, num_test_iterations, winners)
@@ -93,10 +93,10 @@ def test_model(test_output_file, agent, test_filenames, true_winners, model_id):
         num_total_iterations += num_iters_to_find_all_winners
 
         # print('Took', time.perf_counter() - start_file)
-        print(test_inputfile, test_PUT_winners, winners)
+        # print(test_inputfile, test_PUT_winners, winners)
         missed_winners = winners - test_PUT_winners
-        test_output_file.write(str(test_inputfile) + '\t' + str(list(test_PUT_winners)) + '\t' + str(list(winners)) + '\t' + str(list(missed_winners)) + '\t' + str(len(list(missed_winners))) + '\n')
-        test_output_file.flush()
+        # test_output_file.write(str(test_inputfile) + '\t' + str(list(test_PUT_winners)) + '\t' + str(list(winners)) + '\t' + str(list(missed_winners)) + '\t' + str(len(list(missed_winners))) + '\n')
+        # test_output_file.flush()
         max_num_winners = max(max_num_winners, len(test_PUT_winners))
         j += 1
 
@@ -115,12 +115,12 @@ test_at_start = 1
 shuffle_training_data = 1
 
 # Number of iterations to use when testing
-num_test_iterations = 5
+num_test_iterations = 10
 
 # Whether to initialize model from default values (for comparison purposes)
-f_start_from_default = 1
+f_start_from_default = 0
 
-f_experience_replay = 0
+f_experience_replay = 1
 
 # Path to default model (used only if f_start_from_default)
 # default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\data\\\\m10n10-100k\\default_agent_7_features.pth.tar"
@@ -144,7 +144,7 @@ if __name__ == '__main__':
 
     # m10n10
     filenames = sorted(glob.glob('M10N10-*.csv'))
-    train_filenames = filenames[0:5000]
+    train_filenames = filenames[0:2000]
     test_filenames = filenames[80000:100000]
 
     # debugging
@@ -241,6 +241,7 @@ if __name__ == '__main__':
         parameters_file.write("Experience Replay Sample Factor\t" + str(base.unusual_sample_factor) + '\n')
         parameters_file.write("Experience Replay Batch Size\t" + str(base.batch_size) + '\n')
         parameters_file.write("Experience Replay Train Every\t" + str(base.train_every_iterations) + '\n')
+    parameters_file.write("Update Target Network Every\t" + str(base.update_target_network_every) + '\n')
     parameters_file.write("Num Test Iterations\t" + str(num_test_iterations) + '\n')
 
     parameters_file.write("Date\t" + str(datetime.datetime.now()) + '\n')

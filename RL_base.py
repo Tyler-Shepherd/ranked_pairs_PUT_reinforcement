@@ -45,6 +45,9 @@ class RL_base():
         self.learning_rate_end = 0.05
         self.learning_rate_decay = 200000
 
+        # after how many iterations to update the target network to the agent's learned network
+        self.update_target_network_every = 10
+
         self.num_iterations = 100
 
         self.num_profiles = num_profiles
@@ -162,6 +165,10 @@ class RL_base():
             # if self.f_exploration_rate_decay:
             #     self.exploration_rate = (self.num_iterations * self.num_profiles) / (self.num_iterations * self.num_profiles + iter * iter)
 
+            # update target network
+            if iter % self.update_target_network_every == 0:
+                agent.target_model.load_state_dict(agent.model.state_dict())
+
         if self.debug_mode >= 2:
             agent.print_model("")
 
@@ -187,7 +194,7 @@ class RL_base():
             max_next_q_val = 0
 
         for e in next_legal_actions:
-            max_next_q_val = max(max_next_q_val, agent.get_Q_val(e))
+            max_next_q_val = max(max_next_q_val, agent.get_Q_val(e, use_target_net=True))
 
         new_q_value = new_reward + self.discount_factor * max_next_q_val
 

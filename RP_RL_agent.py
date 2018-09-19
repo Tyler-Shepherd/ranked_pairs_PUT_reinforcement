@@ -201,7 +201,17 @@ class RP_RL_agent():
             torch.nn.Linear(self.H, self.D_out)
         )
 
+        # target fixed network to use in updating loss for stabilization
+        # gets updated to self.model periodically
+        # https://pytorch.org/tutorials/intermediate/reinforcement_q_learning.html
+        self.target_model = torch.nn.Sequential(
+            torch.nn.Linear(self.D_in, self.H),
+            torch.nn.Sigmoid(),
+            torch.nn.Linear(self.H, self.D_out)
+        )
+
         self.model.apply(init_weights)
+        self.target_model.load_state_dict(self.model.state_dict())
 
         #print("INIT")
         #self.print_model("")
@@ -523,8 +533,11 @@ class RP_RL_agent():
         return Variable(torch.from_numpy(np.array(f)).float())
         # return Variable(torch.from_numpy(node2vec_f).float())
 
-    def get_Q_val(self, a):
+    def get_Q_val(self, a, use_target_net=False):
         state_features = self.state_features(a)
+
+        if use_target_net:
+            return self.target_model(state_features)
         return self.model(state_features)
 
     # Adds new PUT-winners to self.known_winners
@@ -749,6 +762,7 @@ class RP_RL_agent():
     def load_model(self, checkpoint_filename):
         checkpoint = torch.load(checkpoint_filename)
         self.model.load_state_dict(checkpoint)
+        self.target_model.load_state_dict(self.model.state_dict())
         print("loaded model")
 
     def get_current_state(self):
