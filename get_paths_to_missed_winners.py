@@ -412,10 +412,6 @@ if __name__ == '__main__':
         winners, stats, data = MechanismRankedPairs().outer_loop_lp(profile, profile_missed_winners)
 
         print(inputfile, winners)
-        pprint(data)
-
-        # TODO: need to loop over keys of data (which are the missed winners) and somehow store what missed winner each data point goes to
-        # TODO: store profile
 
         # output to file
         # outputs in form G E K a[0] a[1]

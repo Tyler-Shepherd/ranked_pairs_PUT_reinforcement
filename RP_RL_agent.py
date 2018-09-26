@@ -166,8 +166,8 @@ class RP_RL_agent():
     def __init__(self, learning_rate = 0, loss_output_file = None):
         # Initialize learning model
 
-        self.num_polynomial = 4
-        self.use_visited = True
+        self.num_polynomial = 1
+        self.use_visited = False
         self.use_cycles = False
 
         self.m = 10.0
@@ -175,6 +175,7 @@ class RP_RL_agent():
 
         self.D_in = 0
         # self.D_in += self.num_polynomial * 6 + 4 + 2 + self.num_polynomial * 8 + self.num_polynomial  # out/in, out/in binary, known winners, voting rules, edge weight
+        self.D_in += self.num_polynomial * 4 + 2 # out/in, in K
         # self.D_in += 256 # node2vec
 
         if self.use_visited:
@@ -192,23 +193,31 @@ class RP_RL_agent():
 
         self.D_in = int(self.D_in)
 
-        self.H = 10000 # hidden dimension
+        self.H1 = 1000 # first hidden dimension
+        self.H2 = 1000 # second hidden dimension
         self.D_out = 1  # output dimension, just want q value
 
         self.model = torch.nn.Sequential(
-            torch.nn.Linear(self.D_in, self.H),
+            torch.nn.Linear(self.D_in, self.H1),
             torch.nn.Sigmoid(),
-            torch.nn.Linear(self.H, self.D_out)
+            torch.nn.Linear(self.H1, self.H2),
+            torch.nn.Sigmoid(),
+            torch.nn.Linear(self.H2, self.D_out)
         )
 
         # target fixed network to use in updating loss for stabilization
         # gets updated to self.model periodically
         # https://pytorch.org/tutorials/intermediate/reinforcement_q_learning.html
         self.target_model = torch.nn.Sequential(
-            torch.nn.Linear(self.D_in, self.H),
+            torch.nn.Linear(self.D_in, self.H1),
             torch.nn.Sigmoid(),
-            torch.nn.Linear(self.H, self.D_out)
+            torch.nn.Linear(self.H1, self.H2),
+            torch.nn.Sigmoid(),
+            torch.nn.Linear(self.H2, self.D_out)
         )
+
+        for p in self.target_model.parameters():
+            p.requires_grad = False
 
         self.model.apply(init_weights)
         self.target_model.load_state_dict(self.model.state_dict())
@@ -430,10 +439,10 @@ class RP_RL_agent():
         f = []
 
         # out/in degree
-        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(u), self.E_0.out_degree(u)), self.num_polynomial))
-        # f.extend(self.polynomialize(self.safe_div(self.G.in_degree(u), self.E_0.in_degree(u)), self.num_polynomial))
-        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(v), self.E_0.out_degree(v)), self.num_polynomial))
-        # f.extend(self.polynomialize(self.safe_div(self.G.in_degree(v), self.E_0.in_degree(v)), self.num_polynomial))
+        f.extend(self.polynomialize(self.safe_div(self.G.out_degree(u), self.E_0.out_degree(u)), self.num_polynomial))
+        f.extend(self.polynomialize(self.safe_div(self.G.in_degree(u), self.E_0.in_degree(u)), self.num_polynomial))
+        f.extend(self.polynomialize(self.safe_div(self.G.out_degree(v), self.E_0.out_degree(v)), self.num_polynomial))
+        f.extend(self.polynomialize(self.safe_div(self.G.in_degree(v), self.E_0.in_degree(v)), self.num_polynomial))
 
         # total degree
         # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(u) + self.G.in_degree(u), self.E_0.out_degree(u) + self.E_0.in_degree(u)), self.num_polynomial))
@@ -446,8 +455,8 @@ class RP_RL_agent():
         # f.append(2 * int(self.G.in_degree(v) > 0) - 1)
 
         # known winners features
-        # f.append(2 * int(u in self.K) - 1)
-        # f.append(2 * int(v in self.K) - 1)
+        f.append(2 * int(u in self.K) - 1)
+        f.append(2 * int(v in self.K) - 1)
 
         # voting rules scores
         # f.extend(self.polynomialize(self.plurality_scores[u], self.num_polynomial))
@@ -533,7 +542,7 @@ class RP_RL_agent():
         return Variable(torch.from_numpy(np.array(f)).float())
         # return Variable(torch.from_numpy(node2vec_f).float())
 
-    def get_Q_val(self, a, use_target_net=False):
+    def get_Q_val(self, a, use_target_net=False, update_gradient=True):
         state_features = self.state_features(a)
 
         if use_target_net:
@@ -710,44 +719,45 @@ class RP_RL_agent():
 
         # Sample using model greedily
         # Test with fixed number of iterations
-        for iter in range(num_iterations):
-        # Test till found all winners
-        # while self.known_winners != true_winners:
-            self.reset_environment()
-            self.K = frozenset(self.known_winners)
+        with torch.no_grad():
+            for iter in range(num_iterations):
+            # Test till found all winners
+            # while self.known_winners != true_winners:
+                self.reset_environment()
+                self.K = frozenset(self.known_winners)
 
-            # print(self.known_winners, true_winners)
+                # print(self.known_winners, true_winners)
 
-            num_iters_to_find_all_winners += 1
+                num_iters_to_find_all_winners += 1
 
-            while self.at_goal_state() == -1:
-                legal_actions = self.get_legal_actions()
+                while self.at_goal_state() == -1:
+                    legal_actions = self.get_legal_actions()
 
-                if len(legal_actions) == 0:
-                    # No more edges can be added - goal state
-                    break
+                    if len(legal_actions) == 0:
+                        # No more edges can be added - goal state
+                        break
 
-                # for random action selection testing
-                # max_action = legal_actions[random.randint(0, len(legal_actions) - 1)]
+                    # for random action selection testing
+                    # max_action = legal_actions[random.randint(0, len(legal_actions) - 1)]
 
-                max_action = None
-                max_action_val = float("-inf")
-                for e in legal_actions:
-                    action_val = self.get_Q_val(e)
+                    max_action = None
+                    max_action_val = float("-inf")
+                    for e in legal_actions:
+                        action_val = self.get_Q_val(e)
 
-                    if action_val > max_action_val:
-                        max_action = e
-                        max_action_val = action_val
+                        if action_val > max_action_val:
+                            max_action = e
+                            max_action_val = action_val
 
-                assert (max_action is not None)
+                    assert (max_action is not None)
 
-                self.make_move(max_action, f_testing = True)
+                    self.make_move(max_action, f_testing = True)
 
-            # At goal state
-            new_winners = self.goal_state_update()
+                # At goal state
+                new_winners = self.goal_state_update()
 
-            for c in new_winners:
-                times_discovered.append(iter)
+                for c in new_winners:
+                    times_discovered.append(iter)
 
         # print("done:", num_iters_to_find_all_winners)
         # print("time to make move", time_to_make_move)
@@ -757,6 +767,67 @@ class RP_RL_agent():
         # print("time for state str", self.time_for_state_str)
 
         return self.known_winners, times_discovered, num_iters_to_find_all_winners
+
+
+    def test_model_full(self, test_env, num_iterations, true_winners = set()):
+        self.initialize(test_env)
+
+        times_discovered = []
+        num_iters_to_find_all_winners = 0
+
+        # Sample using model greedily
+        # Test with fixed number of iterations
+        with torch.no_grad():
+            for iter in range(num_iterations):
+            # Test till found all winners
+            # while self.known_winners != true_winners:
+                self.reset_environment()
+                self.K = frozenset(self.known_winners)
+
+                # print(self.known_winners, true_winners)
+
+                num_iters_to_find_all_winners += 1
+
+                while self.at_goal_state() == -1:
+                    legal_actions = self.get_legal_actions()
+
+                    if len(legal_actions) == 0:
+                        # No more edges can be added - goal state
+                        break
+
+                    # for random action selection testing
+                    # max_action = legal_actions[random.randint(0, len(legal_actions) - 1)]
+
+                    max_action = None
+                    max_action_val = float("-inf")
+                    for e in legal_actions:
+                        action_val = self.get_Q_val(e)
+
+                        if action_val > max_action_val:
+                            max_action = e
+                            max_action_val = action_val
+
+                    assert (max_action is not None)
+
+                    self.make_move(max_action, f_testing = True)
+
+                # At goal state
+                new_winners = self.goal_state_update()
+
+                for c in new_winners:
+                    times_discovered.append(iter)
+
+        # print("done:", num_iters_to_find_all_winners)
+        # print("time to make move", time_to_make_move)
+        # print("time for actions", time_for_actions)
+        # print("time for legal actions", time_for_legal_actions)
+        # print("time for rest", time_for_reset)
+        # print("time for state str", self.time_for_state_str)
+
+        return self.known_winners, times_discovered, num_iters_to_find_all_winners
+
+
+
 
 
     def load_model(self, checkpoint_filename):
