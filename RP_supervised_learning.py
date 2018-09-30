@@ -71,33 +71,121 @@ def get_legal_actions(G, E):
 
     return legal_actions
 
+def safe_div(num, denom):
+    if denom == 0:
+        return 0
+    return num / denom
 
 
-def state_features(G, K, a, adjacency_0):
+def state_features(G, K, a, E_0, adjacency_0):
     u = a[0]
     v = a[1]
 
     f = []
 
-    f.extend([1, 1, 1, 1])
+    f.append(safe_div(G.out_degree(u), E_0.out_degree(u)))
+    f.append(safe_div(G.in_degree(u), E_0.in_degree(u)))
+    f.append(safe_div(G.out_degree(v), E_0.out_degree(v)))
+    f.append(safe_div(G.in_degree(v), E_0.in_degree(v)))
 
-    G.add_edge(u,v)
-    adjacency = nx.adjacency_matrix(G, nodelist = I).todense()
-    adjacency = np.multiply(adjacency, adjacency_0)
-    adjacency_normalized = np.divide(adjacency, 10) # NOTE: update if not using n10
-    f.extend(adjacency_normalized.flatten().tolist()[0])
-    G.remove_edge(u,v)
+    f.append(2 * int(u in K) - 1)
+    f.append(2 * int(v in K) - 1)
 
-    # K representation
-    K_list = []
-    for i in I:
-        if i in K:
-            K_list.append(1)
-        else:
-            K_list.append(0)
-    f.extend(K_list)
+    # G.add_edge(u,v)
+    # adjacency = nx.adjacency_matrix(G, nodelist = I).todense()
+    # adjacency = np.multiply(adjacency, adjacency_0)
+    # adjacency_normalized = np.divide(adjacency, 10) # NOTE: update if not using n10
+    # f.extend(adjacency_normalized.flatten().tolist()[0])
+    # G.remove_edge(u,v)
+    #
+    # # K representation
+    # K_list = []
+    # for i in I:
+    #     if i in K:
+    #         K_list.append(1)
+    #     else:
+    #         K_list.append(0)
+    # f.extend(K_list)
 
     return Variable(torch.from_numpy(np.array(f)).float())
+
+
+
+def test(test_data, model, profile_to_E0, profile_to_adjacency0):
+    num_correct = 0
+    for d in test_data:
+        profile = d[0]
+
+        E_0 = profile_to_E0[profile]
+
+        G = nx.DiGraph()
+        G.add_nodes_from(I)
+        G.add_edges_from(string2edges(d[1], I))
+        E = nx.DiGraph()
+        E.add_nodes_from(I)
+
+        E_edges = string2edges(d[2], I)
+        for e in E_edges:
+            E.add_edge(e[0], e[1], weight=E_0[e[0]][e[1]]['weight'])
+
+        K = string2K(d[3])
+        a_optimal = d[4]
+
+        adjacency_0 = profile_to_adjacency0[profile]
+
+        # remove a_optimal from G and add back to E
+        G.remove_edges_from([a_optimal])
+        E.add_edge(a_optimal[0], a_optimal[1], weight=E_0[a_optimal[0]][a_optimal[1]]['weight'])
+
+        # get legal actions at state
+        legal_actions = get_legal_actions(G, E)
+
+        # find q value action
+        max_action = None
+        max_action_val = float("-inf")
+
+        assert a_optimal not in G.edges()
+        assert a_optimal in E.edges()
+        assert a_optimal in legal_actions
+        assert len(legal_actions) > 0
+
+        for e in legal_actions:
+            features = state_features(G, K, e, E_0, adjacency_0)
+            action_Q_val = model(features)
+            if action_Q_val > max_action_val:
+                max_action = e
+                max_action_val = action_Q_val
+
+        if max_action == a_optimal:
+            # we're good
+            # print('good')
+            num_correct += 1
+
+    return num_correct
+
+
+# loss_fn = torch.nn.MSELoss(size_average=False)
+loss_fn = torch.nn.SmoothL1Loss(size_average=False)  # Huber loss
+# TODO: whats the loss function that zeros out if over expected value?
+
+learning_rate = 0.05
+learning_rate_2 = 0.005
+
+def learn_bad_action(model, G, K, E_0, adjacency_0, a):
+    # reduce winner
+    bad_action_features = state_features(G, K, a, E_0, adjacency_0)
+    bad_action_q_val = model(bad_action_features)
+
+    loss = loss_fn(bad_action_q_val, Variable(torch.FloatTensor([-1.0])))
+
+    model.zero_grad()
+    loss.backward()
+    with torch.no_grad():
+        for param in model.parameters():
+            param -= learning_rate_2 * param.grad
+
+    return loss.item()
+
 
 
 if __name__ == '__main__':
@@ -158,11 +246,16 @@ if __name__ == '__main__':
 
             n += 1
 
+    # TODO: clean data
+    # remove duplicates
+    # add other K
+    # same state with multiple actions
+
     print("n", n)
 
     # supervised learning
-    D_in = 114
-    H = 10000  # first hidden dimension
+    D_in = 6
+    H = 1000  # first hidden dimension
     D_out = 1  # output dimension, just want q value
 
     model = torch.nn.Sequential(
@@ -173,65 +266,210 @@ if __name__ == '__main__':
 
     model.apply(init_weights)
 
-    loss_fn = torch.nn.MSELoss(size_average=False)
-    # loss_fn = torch.nn.SmoothL1Loss(size_average=False)  # Huber loss
-
-    learning_rate = 0.05
-
     loss_output_file = open('RP_supervised_learning_loss.txt', 'w')
+    test_output_file = open('RP_supervised_learning_test.txt', 'w')
 
-    for d in data:
-        profile = d[0]
+    random.shuffle(data)
 
-        E_0 = profile_to_E0[profile]
+    num_epochs = 500
+    num_training_data = 5000
+    num_test_data = 1000
 
-        G = nx.DiGraph()
-        G.add_nodes_from(I)
-        G.add_edges_from(string2edges(d[1], I))
-        E = nx.DiGraph()
-        E.add_nodes_from(I)
+    test_data = data[-num_test_data:]
 
-        E_edges = string2edges(d[2], I)
-        for e in E_edges:
-            E.add_edge(e[0], e[1], weight=E_0[e[0]][e[1]]['weight'])
+    # reinforcement learning type approach which adjusts optimal action q val to whatever current max is
+    # spirals out of control
+    # for epoch in range(num_epochs):
+    #     running_loss = 0
+    #     running_loss_2 = 0
+    #     num_correct = 0
+    #     for i in range(100):
+    #         d = data[i]
+    #         profile = d[0]
+    #
+    #         E_0 = profile_to_E0[profile]
+    #
+    #         G = nx.DiGraph()
+    #         G.add_nodes_from(I)
+    #         G.add_edges_from(string2edges(d[1], I))
+    #         E = nx.DiGraph()
+    #         E.add_nodes_from(I)
+    #
+    #         E_edges = string2edges(d[2], I)
+    #         for e in E_edges:
+    #             E.add_edge(e[0], e[1], weight=E_0[e[0]][e[1]]['weight'])
+    #
+    #         K = string2K(d[3])
+    #         a_optimal = d[4]
+    #
+    #         adjacency_0 = profile_to_adjacency0[profile]
+    #
+    #         # remove a_optimal from G and add to E
+    #         G.remove_edges_from([a_optimal])
+    #         E.add_edge(a_optimal[0], a_optimal[1], weight=E_0[a_optimal[0]][a_optimal[1]]['weight'])
+    #
+    #         # get legal actions at state
+    #         legal_actions = get_legal_actions(G, E)
+    #
+    #         # find q value action
+    #         max_action = None
+    #         max_action_val = float("-inf")
+    #
+    #         assert a_optimal not in G.edges()
+    #         assert a_optimal in E.edges()
+    #         assert a_optimal in legal_actions
+    #         assert len(legal_actions) > 0
+    #
+    #         for e in legal_actions:
+    #             features = state_features(G, K, e, E_0, adjacency_0)
+    #             action_Q_val = model(features)
+    #             if action_Q_val > max_action_val:
+    #                 max_action = e
+    #                 max_action_val = action_Q_val
+    #
+    #         if max_action == a_optimal:
+    #             # we're good
+    #             # print('good')
+    #             num_correct += 1
+    #             continue
+    #
+    #         # compute loss as difference from supervised correct action a to max action q val
+    #         correct_features = state_features(G, K, a_optimal, E_0, adjacency_0)
+    #         current_q_val = model(correct_features)
+    #
+    #         loss = loss_fn(current_q_val, Variable(max_action_val))
+    #
+    #         # update model
+    #         model.zero_grad()
+    #         loss.backward()
+    #         with torch.no_grad():
+    #             for param in model.parameters():
+    #                 param -= learning_rate * param.grad
+    #
+    #         # reduce winner
+    #         incorrect_winner_features = state_features(G, K, max_action, E_0, adjacency_0)
+    #         incorrect_winner_q_val = model(incorrect_winner_features)
+    #
+    #         loss2 = loss_fn(incorrect_winner_q_val, current_q_val.detach())
+    #
+    #         model.zero_grad()
+    #         loss2.backward()
+    #         with torch.no_grad():
+    #             for param in model.parameters():
+    #                 param -= learning_rate_2 * param.grad
+    #
+    #         running_loss += loss.item()
+    #         running_loss_2 += loss2.item()
+    #
+    #
+    #     loss_output_file.write(str(running_loss) + '\t' + str(running_loss_2) + '\t' + str(num_correct) + '\n')
+    #     loss_output_file.flush()
+    #     print(running_loss)
+    #     print(running_loss_2)
+    #     print(num_correct)
+    #     print(current_q_val.item())
+    #     print('------------------------------------')
 
-        K = string2K(d[3])
-        a_optimal = d[4]
+    for epoch in range(num_epochs):
+        running_loss = 0
+        running_loss_2 = 0
+        num_correct = 0
+        num_bad_actions = 0
 
-        adjacency_0 = profile_to_adjacency0[profile]
+        if epoch % 100 == 0 or epoch == num_epochs-1:
+            test_results = test(test_data, model, profile_to_E0, profile_to_adjacency0)
+            print("test", epoch, test_results / len(test_data))
+            test_output_file.write(str(epoch) + '\t' + str(test_results / len(test_data)) + '\n')
+            test_output_file.flush()
 
-        # get legal actions at state
-        legal_actions = get_legal_actions(G, E)
+        epoch_start = time.perf_counter()
 
-        # find q value action
-        max_action = None
-        max_action_val = float("-inf")
+        for i in range(num_training_data):
+            d = data[i]
+            profile = d[0]
 
-        assert a_optimal not in G.edges()
-        assert a_optimal in E.edges()
-        assert len(legal_actions) != 0
+            E_0 = profile_to_E0[profile]
 
-        for e in legal_actions:
-            features = state_features(G, K, e, adjacency_0)
-            action_Q_val = model(features)
-            if action_Q_val > max_action_val:
-                max_action = e
-                max_action_val = action_Q_val
+            G = nx.DiGraph()
+            G.add_nodes_from(I)
+            G.add_edges_from(string2edges(d[1], I))
+            E = nx.DiGraph()
+            E.add_nodes_from(I)
 
-        # compute loss as difference from supervised correct action a to max action q val
-        correct_features = state_features(G, K, a_optimal, adjacency_0)
-        current_q_val = model(correct_features)
+            E_edges = string2edges(d[2], I)
+            for e in E_edges:
+                E.add_edge(e[0], e[1], weight=E_0[e[0]][e[1]]['weight'])
 
-        loss = loss_fn(current_q_val, Variable(max_action_val))
+            K = string2K(d[3])
+            a_optimal = d[4]
 
-        # update model
-        model.zero_grad()
-        loss.backward()
-        with torch.no_grad():
-            for param in model.parameters():
-                param -= learning_rate * param.grad
+            adjacency_0 = profile_to_adjacency0[profile]
 
-        loss_output_file.write(str(loss.item()) + '\n')
-        print(loss.item())
+            # remove a_optimal from G and add to E
+            G.remove_edges_from([a_optimal])
+            E.add_edge(a_optimal[0], a_optimal[1], weight=E_0[a_optimal[0]][a_optimal[1]]['weight'])
+
+            # get legal actions at state
+            legal_actions = get_legal_actions(G, E)
+
+            # sanity check
+            assert a_optimal not in G.edges()
+            assert a_optimal in E.edges()
+            assert a_optimal in legal_actions
+            assert len(legal_actions) > 0
+
+            # find max q value action
+            max_action = None
+            max_action_val = float("-inf")
+            for e in legal_actions:
+                features = state_features(G, K, e, E_0, adjacency_0)
+                action_Q_val = model(features)
+                if action_Q_val > max_action_val:
+                    max_action = e
+                    max_action_val = action_Q_val
+
+            if max_action == a_optimal:
+                # selecting correctly
+                # TODO: do we want to do this?
+                num_correct += 1
+                continue
+
+            # update correct action to have q val 1
+            correct_features = state_features(G, K, a_optimal, E_0, adjacency_0)
+            current_q_val = model(correct_features)
+
+            loss = loss_fn(current_q_val, Variable(torch.FloatTensor([1.0])))
+
+            # update model
+            model.zero_grad()
+            loss.backward()
+            with torch.no_grad():
+                for param in model.parameters():
+                    param -= learning_rate * param.grad
+
+            # update all other actions to have q val -1
+            for e in legal_actions:
+                if e != a_optimal:
+                    running_loss_2 += learn_bad_action(model, G, K, E_0, adjacency_0, e)
+                    num_bad_actions += 1
+
+            running_loss += loss.item()
+
+        # compute avg loss per action
+        running_loss = running_loss / num_training_data
+        running_loss_2 = running_loss_2 / num_bad_actions
+
+        loss_output_file.write(str(running_loss) + '\t' + str(running_loss_2) + '\t' + str(num_correct) + '\n')
+        loss_output_file.flush()
+        print("epoch", epoch)
+        print("correct loss", running_loss)
+        print("incorrect loss", running_loss_2)
+        print("num correct", num_correct)
+        print("num bad actions", num_bad_actions)
+        print("ex q val", current_q_val.item())
+        print("time for epoch", time.perf_counter() - epoch_start)
+        print('------------------------------------')
+
 
     loss_output_file.close()
+    test_output_file.close()

@@ -101,7 +101,7 @@ if __name__ == '__main__':
 
     agent = RP_RL_agent()
     # agent.load_model("C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\data\\\\m10n10-100k\\checkpoint.pth.tar")
-    agent.load_model("C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\9-14\\results_RP_RL_main311741496_model.pth.tar")
+    agent.load_model("C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\9-22\\results_RP_RL_main240295240_model.pth.tar")
 
     agent.initialize(profile)
     agent.reset_environment()

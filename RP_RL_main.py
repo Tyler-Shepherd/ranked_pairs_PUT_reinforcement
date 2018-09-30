@@ -308,7 +308,7 @@ if __name__ == '__main__':
     parameters_file.write("Update Target Network Every\t" + str(base.update_target_network_every) + '\n')
     parameters_file.write("Num Test Iterations\t" + str(num_test_iterations) + '\n')
     parameters_file.write("Train Till Find All Winners\t" + str(f_train_till_find_all_winners) + '\n')
-    parameters_file.write("Train Till Find All Winners\t" + str(f_test_till_find_all_winners) + '\n')
+    parameters_file.write("Test Till Find All Winners\t" + str(f_test_till_find_all_winners) + '\n')
 
     parameters_file.write("Date\t" + str(datetime.datetime.now()) + '\n')
     parameters_file.flush()

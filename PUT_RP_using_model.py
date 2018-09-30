@@ -11,6 +11,8 @@ from profile import Profile
 import copy
 import sys
 import networkx as nx
+from networkx.algorithms.connectivity import local_edge_connectivity
+from networkx.algorithms.connectivity import local_node_connectivity
 import rpconfig
 from collections import defaultdict
 import matplotlib.pyplot as plt
@@ -23,6 +25,111 @@ from pprint import pprint
 
 # Copied from LPwinners_db_5_6
 # Does not use database
+
+
+# computes the plurality scores of candidates given an input profile
+# input: profile of preferences as np matrix
+# output: m-vector of plurality scores of candidates, normalized by n
+def plurality_score(profile_matrix):
+    (n,m) = np.shape(profile_matrix)
+    pluralityscores = [0] * m
+    for i in range(n):
+        pluralityscores[profile_matrix[i,0]] += 1
+    pluralityscores_normalized = list(1.*np.array(pluralityscores)/n)
+    return pluralityscores_normalized
+
+#computes the Borda scores of candidates given an input profile
+# input: profile
+# output: m-vector of Borda scores of candidates, normalized by n(m-1)
+def borda_score(profile_matrix):
+    (n,m) = np.shape(profile_matrix)
+    bordascores = [0] * m
+    for i in range(n):
+        for j in range(m):
+            bordascores[profile_matrix[i,j]] += (m - j)
+    bordascores_normalized = list(1.*np.array(bordascores)/(n*(m-1)))
+    return bordascores_normalized
+
+#computes the Copeland scores of candidates
+# input: wmg dict
+# output: m-vector of Copeland scores of candidates, normalized by m-1 to [-1, 1]
+def copeland_score(wmg):
+    m = len(wmg.keys())
+    copelandscores = [0] * m
+    for cand1, cand2 in itertools.permutations(wmg.keys(), 2):
+        if wmg[cand1][cand2] > 0:
+            copelandscores[cand1] += 1
+            copelandscores[cand2] -= 1
+    copelandscores_normalized = list(1.*np.array(copelandscores)/(m-1))
+    return copelandscores_normalized
+
+#computes the Maximin scores of candidates
+# input: wmg dict
+# output: m-vector of Maximin scores of candidates, normalized by n to [-1, 1]
+def maximin_score(wmg):
+    n = len(wmg.keys())
+    maximinscores = [0] * n
+    for cand in wmg.keys():
+        maximinscores[cand] = min(i for (_, i) in wmg[cand].items())
+
+    maximinscores_normalized = list(1.*np.array(maximinscores)/n)
+    return maximinscores_normalized
+
+# just vectorizes the wmg
+# input: wmg
+# output: vectorized weighted majority graph. sorted by candidates, then by opponents,
+#   normalized by no. of voters
+def vectorize_wmg(wmg):
+    m = len(wmg)
+    n = np.sum(np.abs([wmg[0][i] for i in range(1,m)]))
+    wmg_vec = [wmg[i][j] for i in range(m) for j in range(m) if not j == i]
+    wmg_vec_normalized = list(1.*np.array(wmg_vec)/n)
+    return wmg_vec_normalized
+
+
+# creates a positional matrix and vectorizes it
+# input: profile
+# intermediate: positional matrix posmat
+#   posmat[i][j] = # voters ranking candidate i in position j
+# output: vectorized positional matrix, sorted by candidate, then by position,
+#   normalized by no. of voters
+def profile2posmat(profile_matrix):
+    (n,m) = np.shape(profile_matrix)
+    posmat = np.zeros((m,m))
+
+    for i in range(n):
+        vote = profile_matrix[i, :]
+        for pos in range(m):
+            cand = vote[0, pos]
+            posmat[cand][pos] += 1
+    posmat_vec = posmat.flatten()
+    posmat_vec_normalized = list(1.*np.array(posmat_vec)/n)
+    return posmat_vec_normalized
+
+# For node s, avg over all other nodes t of local edge connectivity = num edges needed to remove to disconnect s and t
+def avg_edge_connectivity(G, I, s):
+    total_connectivity = 0
+    for t in I:
+        if t != s:
+            total_connectivity += local_edge_connectivity(G, s, t)
+
+    avg_connectivity = total_connectivity / (len(I) - 1)
+    # TODO: normalize
+    return avg_connectivity
+
+# For node s, avg over all other nodes t of local node connectivity = num nodes needed to remove to disconnect s and t
+def avg_node_connectivity(G, I, s):
+    total_connectivity = 0
+    for t in I:
+        if t != s:
+            total_connectivity += local_node_connectivity(G, s, t)
+
+    avg_connectivity = total_connectivity / (len(I) - 1)
+    # TODO: normalize
+    return avg_connectivity
+
+
+
 
 class MechanismRankedPairs():
     """
@@ -151,27 +258,29 @@ class MechanismRankedPairs():
 
     # Returns input layer features at current state taking action a
     # a is an edge
-    def state_features(self, G, E, I, K, a):
+    def state_features(self, G, E, I, K, T, a):
         u = a[0]
         v = a[1]
 
         f = []
 
+        num_polynomial = 4
+
         # out/in degree
-        f.extend(self.polynomialize(self.safe_div(G.out_degree(u), self.E_0.out_degree(u)), 1))
-        f.extend(self.polynomialize(self.safe_div(G.in_degree(u), self.E_0.in_degree(u)), 1))
-        f.extend(self.polynomialize(self.safe_div(G.out_degree(v), self.E_0.out_degree(v)), 1))
-        f.extend(self.polynomialize(self.safe_div(G.in_degree(v), self.E_0.in_degree(v)), 1))
+        f.extend(self.polynomialize(self.safe_div(G.out_degree(u), self.E_0.out_degree(u)), num_polynomial))
+        f.extend(self.polynomialize(self.safe_div(G.in_degree(u), self.E_0.in_degree(u)), num_polynomial))
+        f.extend(self.polynomialize(self.safe_div(G.out_degree(v), self.E_0.out_degree(v)), num_polynomial))
+        f.extend(self.polynomialize(self.safe_div(G.in_degree(v), self.E_0.in_degree(v)), num_polynomial))
 
         # total degree
-        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(u) + self.G.in_degree(u), self.E_0.out_degree(u) + self.E_0.in_degree(u)), self.num_polynomial))
-        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(v) + self.G.in_degree(v), self.E_0.out_degree(v) + self.E_0.in_degree(v)), self.num_polynomial))
+        f.extend(self.polynomialize(self.safe_div(G.out_degree(u) + G.in_degree(u), self.E_0.out_degree(u) + self.E_0.in_degree(u)), num_polynomial))
+        f.extend(self.polynomialize(self.safe_div(G.out_degree(v) + G.in_degree(v), self.E_0.out_degree(v) + self.E_0.in_degree(v)), num_polynomial))
 
         # binary "has out/in degree" features
-        # f.append(2 * int(self.G.out_degree(u) > 0) - 1)
-        # f.append(2 * int(self.G.in_degree(u) > 0) - 1)
-        # f.append(2 * int(self.G.out_degree(v) > 0) - 1)
-        # f.append(2 * int(self.G.in_degree(v) > 0) - 1)
+        f.append(2 * int(G.out_degree(u) > 0) - 1)
+        f.append(2 * int(G.in_degree(u) > 0) - 1)
+        f.append(2 * int(G.out_degree(v) > 0) - 1)
+        f.append(2 * int(G.in_degree(v) > 0) - 1)
 
         # known winners features
         f.append(2 * int(u in K) - 1)
@@ -183,23 +292,23 @@ class MechanismRankedPairs():
         #     f.extend(self.polynomialize(0, 1))
 
         # voting rules scores
-        # f.extend(self.polynomialize(self.plurality_scores[u], self.num_polynomial))
-        # f.extend(self.polynomialize(self.plurality_scores[v], self.num_polynomial))
-        # f.extend(self.polynomialize(self.borda_scores[u], self.num_polynomial))
-        # f.extend(self.polynomialize(self.borda_scores[v], self.num_polynomial))
-        # f.extend(self.polynomialize(self.copeland_scores[u], self.num_polynomial))
-        # f.extend(self.polynomialize(self.copeland_scores[v], self.num_polynomial))
-        # f.extend(self.polynomialize(self.maximin_scores[u], self.num_polynomial))
-        # f.extend(self.polynomialize(self.maximin_scores[v], self.num_polynomial))
+        f.extend(self.polynomialize(self.plurality_scores[u], num_polynomial))
+        f.extend(self.polynomialize(self.plurality_scores[v], num_polynomial))
+        f.extend(self.polynomialize(self.borda_scores[u], num_polynomial))
+        f.extend(self.polynomialize(self.borda_scores[v], num_polynomial))
+        f.extend(self.polynomialize(self.copeland_scores[u], num_polynomial))
+        f.extend(self.polynomialize(self.copeland_scores[v], num_polynomial))
+        f.extend(self.polynomialize(self.maximin_scores[u], num_polynomial))
+        f.extend(self.polynomialize(self.maximin_scores[v], num_polynomial))
 
-        # f.extend(self.vectorized_wmg)
-        # f.extend(self.posmat)
+        f.extend(self.vectorized_wmg)
+        f.extend(self.posmat)
 
         # visited feature (always will be 1 since caching)
         # f.extend([1])
 
         # edge weight
-        # f.extend(self.polynomialize(self.E_0_really[u][v]['weight'] / self.max_edge_weight, self.num_polynomial))
+        f.extend(self.polynomialize(self.E_0[u][v]['weight'] / self.max_edge_weight, num_polynomial))
 
         # adjacency matrix if a is added
         G.add_edge(u,v)
@@ -219,21 +328,20 @@ class MechanismRankedPairs():
         f.extend(K_list)
 
         # tier adjacency matrix
-        # legal_actions = self.get_legal_actions()
-        # legal_actions.remove(a)
-        # T = np.zeros((int(self.m), int(self.m)))
-        # for (c1,c2) in legal_actions:
-        #     T[c1,c2] = 1
-        # T_vec = list(T.flatten())
-        # f.extend(T_vec)
+        legal_actions = T.copy()
+        T_matrix = np.zeros((10, 10)) # needs to change for anything not 10x10
+        for (c1,c2) in legal_actions:
+            T_matrix[c1,c2] = 1
+        T_vec = list(T_matrix.flatten())
+        f.extend(T_vec)
 
         # edge connectivity
-        # f.extend(self.polynomialize(avg_edge_connectivity(self.G, self.I, u), self.num_polynomial))
-        # f.extend(self.polynomialize(avg_edge_connectivity(self.G, self.I, v), self.num_polynomial))
+        f.extend(self.polynomialize(avg_edge_connectivity(G, I, u), num_polynomial))
+        f.extend(self.polynomialize(avg_edge_connectivity(G, I, v), num_polynomial))
 
         # node connectivity
-        # f.extend(self.polynomialize(avg_node_connectivity(self.G, self.I, u), self.num_polynomial))
-        # f.extend(self.polynomialize(avg_node_connectivity(self.G, self.I, v), self.num_polynomial))
+        f.extend(self.polynomialize(avg_node_connectivity(G, I, u), num_polynomial))
+        f.extend(self.polynomialize(avg_node_connectivity(G, I, v), num_polynomial))
 
         # node2vec every time
         # G_with_weights = nx.DiGraph()
@@ -275,17 +383,34 @@ class MechanismRankedPairs():
         known_winners = set()
         I = list(wmg.keys())
 
+        # save profile as matrix for use in features
+        profile_matrix = []
+        for p in profile.preferences:
+            profile_matrix.append(p.getOrderVector())
+        self.profile_matrix = np.asmatrix(profile_matrix)
+
         G = nx.DiGraph()
         G.add_nodes_from(I)
 
         E = nx.DiGraph()
         E.add_nodes_from(I)
+        self.max_edge_weight = 0
         for cand1, cand2 in itertools.permutations(wmg.keys(), 2):
             if wmg[cand1][cand2] > 0:
                 E.add_edge(cand1, cand2, weight=wmg[cand1][cand2])
+                self.max_edge_weight = max(self.max_edge_weight, wmg[cand1][cand2])
 
         self.E_0 = E.copy()
         self.adjacency_0 = nx.adjacency_matrix(E, nodelist=I).todense()
+
+        # compute voting rules scores
+        self.plurality_scores = plurality_score(self.profile_matrix)
+        self.borda_scores = borda_score(self.profile_matrix)
+        self.copeland_scores = copeland_score(wmg)
+        self.maximin_scores = maximin_score(wmg)
+
+        self.vectorized_wmg = vectorize_wmg(wmg)
+        self.posmat = profile2posmat(self.profile_matrix)
 
         # print(wmg)
         # self.output_graph(E)
@@ -447,7 +572,7 @@ class MechanismRankedPairs():
                         EUT = E.copy()
                         EUT.add_edges_from(T)
 
-                        priority = model(self.state_features(G, EUT, I, known_winners, e))
+                        priority = model(self.state_features(G, EUT, I, known_winners, Tc, e))
 
                         children[child_node] = (priority, index)
                         index = index + 1
@@ -576,16 +701,19 @@ if __name__ == '__main__':
 
 
     # load RL model
-    D_in = 8
-    H = 100
+    D_in = 482
+    H1 = 1000
+    H2 = 1000
     D_out = 1
     model = torch.nn.Sequential(
-        torch.nn.Linear(D_in, H),
+        torch.nn.Linear(D_in, H1),
         torch.nn.Sigmoid(),
-        torch.nn.Linear(H, D_out)
+        torch.nn.Linear(H1, H2),
+        torch.nn.Sigmoid(),
+        torch.nn.Linear(H2, D_out)
     )
 
-    checkpoint_filename = "C:\\Users\\shepht2\\Documents\\School\\Masters\\STV Ranked Pairs\\RL\\results\\8-26\\checkpoint.pth.tar"
+    checkpoint_filename = "C:\\Users\\shepht2\\Documents\\School\\Masters\\STV Ranked Pairs\\RL\\results\\9-22\\results_RP_RL_main240295240_model.pth.tar"
     checkpoint = torch.load(checkpoint_filename)
     model.load_state_dict(checkpoint)
     print("loaded model from", checkpoint_filename)
