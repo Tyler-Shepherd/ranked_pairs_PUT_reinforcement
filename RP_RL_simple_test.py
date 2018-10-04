@@ -25,6 +25,7 @@ import glob
 sys.path.append('./RL')
 from RP_RL_main import read_profile
 from RP_RL_agent import RP_RL_agent
+from RP_RL_agent_v2 import RP_RL_agent_v2
 
 def print_weights(agent):
     # Print weights
@@ -100,8 +101,10 @@ if __name__ == '__main__':
     # profile = read_profile("M10N10-100000.csv")
 
     agent = RP_RL_agent()
+    # agent = RP_RL_agent_v2()
+
     # agent.load_model("C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\data\\\\m10n10-100k\\checkpoint.pth.tar")
-    agent.load_model("C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\9-22\\results_RP_RL_main240295240_model.pth.tar")
+    agent.load_model("C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\10-1\\results_RP_RL_main882861866_model.pth.tar")
 
     agent.initialize(profile)
     agent.reset_environment()
@@ -109,22 +112,46 @@ if __name__ == '__main__':
     output_file = open("weight_output.txt", 'w+')
     agent.print_model(output_file)
 
-    agent.K = frozenset({0})
+    agent.K = frozenset({0, 1, 2, 4, 5, 6, 8, 9})
 
     print("********* START *************")
 
-    print_weights(agent)
+    # print_weights(agent)
+
+    while agent.at_goal_state()[0] == -1:
+
+        legal_actions = agent.get_legal_actions()
+
+        # Find best action
+        max_action = None
+        max_action_val = float("-inf")
+        print("\nlegal actions:")
+        for e in legal_actions:
+            action_Q_val = agent.get_Q_val(e)
+            print(e, action_Q_val)
+            if action_Q_val > max_action_val:
+                max_action = e
+                max_action_val = action_Q_val
+
+        print("Max action", max_action)
+
+        agent.make_move(max_action)
+
+
+    # v2
 
     # while agent.at_goal_state() == -1:
     #
     #     legal_actions = agent.get_legal_actions()
+    #
+    #     state_q_vals = agent.get_Q_vals()
     #
     #     # Find best action
     #     max_action = None
     #     max_action_val = float("-inf")
     #     print("\nlegal actions:")
     #     for e in legal_actions:
-    #         action_Q_val = agent.get_Q_val(e)
+    #         action_Q_val = state_q_vals[e]
     #         print(e, action_Q_val)
     #         if action_Q_val > max_action_val:
     #             max_action = e

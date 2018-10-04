@@ -24,12 +24,15 @@ import glob
 import datetime
 
 from PUT_RP_using_model import MechanismRankedPairs
+from PUT_RP_using_model_v2 import MechanismRankedPairs_v2
 
 sys.path.append('./RL')
 from RL_base import RL_base
 from RL_base_experience_replay import RL_base_experience_replay
 from RP_RL_agent import RP_RL_agent
 from RP_RL_agent_node2vec import RP_RL_agent_node2vec
+from RL_base_v2 import RL_base_v2
+from RP_RL_agent_v2 import RP_RL_agent_v2
 
 
 def read_profile(inputfile):
@@ -78,7 +81,10 @@ def test_model_find_all_winners(test_output_file, agent, test_filenames, true_wi
         test_profile = read_profile(test_inputfile)
 
         start = time.perf_counter()
-        rp_results = MechanismRankedPairs().outer_loop_lp(test_profile, agent.model)
+        if f_use_v2:
+            rp_results = MechanismRankedPairs_v2().outer_loop_lp(test_profile, agent.model)
+        else:
+            rp_results = MechanismRankedPairs().outer_loop_lp(test_profile, agent.model)
         end = time.perf_counter()
 
         PUT_winners = rp_results[0]
@@ -107,8 +113,6 @@ def test_model_find_all_winners(test_output_file, agent, test_filenames, true_wi
 
 
 
-
-
 def test_model(test_output_file, agent, test_filenames, true_winners, model_id):
     # Test the agents learned model
 
@@ -118,41 +122,53 @@ def test_model(test_output_file, agent, test_filenames, true_winners, model_id):
 
     agent.save_model(model_id)
 
-    print("Starting test")
+    if f_use_testing_v2:
+        print("Starting test v2")
+    else:
+        print("Starting test")
 
     start = time.perf_counter()
 
     max_num_winners = 0
+
+    test_output_file.write("***************************************\n")
 
     for test_inputfile in test_filenames:
         test_profile = read_profile(test_inputfile)
 
         # print("Testing", test_inputfile)
 
-        if f_test_till_find_all_winners:
-            # doesn't actually work this way
+        if f_use_testing_v2:
             winners = set(true_winners[j])
         else:
             winners = set()
 
         start_file = time.perf_counter()
 
-        test_PUT_winners, times_discovered, num_iters_to_find_all_winners = agent.test_model(test_profile, num_test_iterations, winners)
+        if f_use_testing_v2:
+            test_PUT_winners, times_discovered, num_iters_to_find_all_winners = agent.test_model_v2(test_profile, winners)
+        else:
+            test_PUT_winners, times_discovered, num_iters_to_find_all_winners = agent.test_model(test_profile, num_test_iterations, winners)
 
+        test_time = time.perf_counter() - start_file
         num_found_test += len(test_PUT_winners)
         num_total_iterations += num_iters_to_find_all_winners
 
         # print('Took', time.perf_counter() - start_file)
         # print(test_inputfile, test_PUT_winners, winners)
         missed_winners = winners - test_PUT_winners
-        # test_output_file.write(str(test_inputfile) + '\t' + str(list(test_PUT_winners)) + '\t' + str(list(winners)) + '\t' + str(list(missed_winners)) + '\t' + str(len(list(missed_winners))) + '\n')
-        # test_output_file.flush()
+
+        output_str = str(test_inputfile) + '\t' + str(list(test_PUT_winners)) + '\t' + str(len(test_PUT_winners)) + '\t' + str(missed_winners) + '\t' + str(len(missed_winners)) + '\t' + str(num_iters_to_find_all_winners) + '\t' + str(times_discovered) + '\t' + str(test_time)
+
+        print(j, output_str)
+        test_output_file.write(output_str + '\n')
+        test_output_file.flush()
         max_num_winners = max(max_num_winners, len(test_PUT_winners))
         j += 1
 
     print("Test found", num_found_test, "in", num_total_iterations, "iterations, took", time.perf_counter() - start)
     # print("max num winners", max_num_winners)
-    test_output_file.write(str(i) + "\t" + str(num_found_test) + "\t" + str(num_total_iterations) + "\n")
+    test_output_file.write("END" + "\t" + str(i) + "\t" + str(num_found_test) + "\t" + str(num_total_iterations) + "\n")
     test_output_file.flush()
 
 
@@ -173,12 +189,18 @@ f_start_from_default = 0
 
 f_experience_replay = 0
 
-f_train_till_find_all_winners = 1
-f_test_till_find_all_winners = 1
+f_train_till_find_all_winners = 0
+f_test_till_find_all_winners = 0
+
+# v2 has network return values for all edges
+f_use_v2 = 0
+
+# testing v2 tests number of samples to find all winners
+f_use_testing_v2 = 1
 
 # Path to default model (used only if f_start_from_default)
 # default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\data\\\\m10n10-100k\\default_agent_7_features.pth.tar"
-default_model_path = "C:\\Users\\shepht2\\Documents\\School\\Masters\\STV Ranked Pairs\\RL\\results\\9-12\\results_RP_RL_main731959360_model.pth.tar"
+default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\10-2\\results_RP_RL_main968971866_model.pth.tar"
 
 
 if __name__ == '__main__':
@@ -202,6 +224,8 @@ if __name__ == '__main__':
     filenames = [i.strip('\n') for i in filenames_file]
     train_filenames = filenames[:10000] + filenames[11000:]
     test_filenames = filenames[10000:11000]   # the 1000 profiles we used in the paper
+    # test_filenames = filenames[10000:10100]
+    # test_filenames = ["M10N10-16804.csv"]
 
     # m10n10
     # filenames = sorted(glob.glob('M10N10-*.csv'))
@@ -234,14 +258,19 @@ if __name__ == '__main__':
     loss_file = open(loss_filename, "w+")
 
     # Create base
-    if f_experience_replay:
-        base = RL_base_experience_replay(len(train_filenames))
+    if f_use_v2:
+        base = RL_base_v2(len(train_filenames))
     else:
-        base = RL_base(len(train_filenames))
-
+        if f_experience_replay:
+            base = RL_base_experience_replay(len(train_filenames))
+        else:
+            base = RL_base(len(train_filenames))
 
     # Create agent
-    agent = RP_RL_agent(base.learning_rate, loss_file)
+    if f_use_v2:
+        agent = RP_RL_agent_v2(base.learning_rate, loss_file)
+    else:
+        agent = RP_RL_agent(base.learning_rate, loss_file)
 
     if f_start_from_default:
         agent.load_model(default_model_path)
@@ -259,7 +288,7 @@ if __name__ == '__main__':
     print(output_filename)
 
     # Print header
-    header = "Inputfile\tPUT-winners\tExploration Rate\tLearning Rate\tStop Conditions\tNum Nodes\tNum Winners Found\tLoss\tAvg Loss\tIs Acyclic\tIter To Find All Winners\tRuntime"
+    header = "Inputfile\tPUT-winners\tExploration Rate\tLearning Rate\tTau\tStop Conditions\tNum Nodes\tNum Winners Found\tLoss\tAvg Loss\tIs Acyclic\tIter To Find All Winners\tRuntime"
     print(header)
     output_file.write(header+'\n')
 
@@ -309,6 +338,11 @@ if __name__ == '__main__':
     parameters_file.write("Num Test Iterations\t" + str(num_test_iterations) + '\n')
     parameters_file.write("Train Till Find All Winners\t" + str(f_train_till_find_all_winners) + '\n')
     parameters_file.write("Test Till Find All Winners\t" + str(f_test_till_find_all_winners) + '\n')
+    parameters_file.write("Use V2\t" + str(f_use_v2) + '\n')
+    parameters_file.write("Shape Reward\t" + str(agent.f_shape_reward) + '\n')
+    parameters_file.write("Use Testing V2\t" + str(f_use_testing_v2) + '\n')
+    if f_use_testing_v2:
+        parameters_file.write("Tau for Testing\t" + str(agent.tau_for_testing) + '\n')
 
     parameters_file.write("Date\t" + str(datetime.datetime.now()) + '\n')
     parameters_file.flush()
@@ -330,12 +364,13 @@ if __name__ == '__main__':
     # split true_winners into train and test
     true_winners_train = true_winners[:10000] + true_winners[11000:]
     true_winners_test = true_winners[10000:11000]
+    # true_winners_test = [[8, 1, 3, 6]]
 
     if not f_test_till_find_all_winners:
-        test_output_file.write('Profile\tNum Winners\tNum Iterations\n')
+        test_output_file.write('Profile\tPUT-Winners\tNum Winners\tMissed Winners\tNum Missed Winners\tNum Iters\tIter Discoverd\tRuntime\n')
     else:
         test_header = "inputfile\tPUT-winners\tnum nodes\tdiscovery states\tmax discovery state\tdiscovery times\tmax discovery times\tstop condition hits\tsum stop cond hits\tnum hashes\tnum initial bridges\tnum redundant edges\ttime for cycles\truntime"
-        test_output_file.write(header+'\n')
+        test_output_file.write(test_header+'\n')
 
     for inputfile in train_filenames:
         if i % test_every == 0 and (test_at_start or i != 0):
@@ -344,7 +379,7 @@ if __name__ == '__main__':
             if f_test_till_find_all_winners:
                 test_model_find_all_winners(test_output_file, agent, test_filenames, true_winners_test, model_id, num_times_tested)
             else:
-                test_model(test_output_file, agent, test_filenames, true_winners, model_id)
+                test_model(test_output_file, agent, test_filenames, true_winners_test, model_id)
 
             num_times_tested += 1
 
@@ -374,8 +409,8 @@ if __name__ == '__main__':
 
         is_acyclic = str(nx.is_directed_acyclic_graph(agent.E_0))
 
-        result_text = "%s\t%r\t%f\t%f\t%r\t%d\t%d\t%f\t%f\t%s\t%d\t%f" % \
-                      (inputfile, PUT_winners, base.exploration_rate, base.learning_rate, stats.stop_condition_hits, stats.num_nodes, len(PUT_winners), stats.running_loss, avg_loss_per_node, is_acyclic, iter_to_find_all_winners, end - start)
+        result_text = "%s\t%r\t%f\t%f\t%f\t%r\t%d\t%d\t%f\t%f\t%s\t%d\t%f" % \
+                      (inputfile, PUT_winners, base.exploration_rate, base.learning_rate, base.tau, stats.stop_condition_hits, stats.num_nodes, len(PUT_winners), stats.running_loss, avg_loss_per_node, is_acyclic, iter_to_find_all_winners, end - start)
         print(i, result_text)
         output_file.write(result_text + '\n')
         output_file.flush()
@@ -386,7 +421,10 @@ if __name__ == '__main__':
 
     # Final test
     print("output:", output_filename)
-    test_model(test_output_file, agent, test_filenames, true_winners, model_id)
+    if f_test_till_find_all_winners:
+        test_model_find_all_winners(test_output_file, agent, test_filenames, true_winners_test, model_id, num_times_tested)
+    else:
+        test_model(test_output_file, agent, test_filenames, true_winners, model_id)
 
     print("Total Time to Train: %f" % total_time)
     print("Average Time: %f" % (total_time / num_profiles))
@@ -398,4 +436,3 @@ if __name__ == '__main__':
     weight_file.close()
     test_output_file.close()
     parameters_file.close()
-

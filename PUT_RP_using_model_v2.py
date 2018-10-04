@@ -131,7 +131,7 @@ def avg_node_connectivity(G, I, s):
 
 
 
-class MechanismRankedPairs():
+class MechanismRankedPairs_v2():
     """
     The Ranked Pairs mechanism.
     """
@@ -258,65 +258,19 @@ class MechanismRankedPairs():
 
     # Returns input layer features at current state taking action a
     # a is an edge
-    def state_features(self, G, E, I, K, T, a):
-        u = a[0]
-        v = a[1]
-
+    def state_features(self, G, E, I, K, T):
         f = []
 
         num_polynomial = 4
 
-        # out/in degree
-        # f.extend(self.polynomialize(self.safe_div(G.out_degree(u), self.E_0.out_degree(u)), num_polynomial))
-        # f.extend(self.polynomialize(self.safe_div(G.in_degree(u), self.E_0.in_degree(u)), num_polynomial))
-        # f.extend(self.polynomialize(self.safe_div(G.out_degree(v), self.E_0.out_degree(v)), num_polynomial))
-        # f.extend(self.polynomialize(self.safe_div(G.in_degree(v), self.E_0.in_degree(v)), num_polynomial))
+        # f.extend(self.vectorized_wmg)
+        # f.extend(self.posmat)
 
-        # total degree
-        # f.extend(self.polynomialize(self.safe_div(G.out_degree(u) + G.in_degree(u), self.E_0.out_degree(u) + self.E_0.in_degree(u)), num_polynomial))
-        # f.extend(self.polynomialize(self.safe_div(G.out_degree(v) + G.in_degree(v), self.E_0.out_degree(v) + self.E_0.in_degree(v)), num_polynomial))
-
-        # binary "has out/in degree" features
-        f.append(2 * int(G.out_degree(u) > 0) - 1)
-        f.append(2 * int(G.in_degree(u) > 0) - 1)
-        f.append(2 * int(G.out_degree(v) > 0) - 1)
-        f.append(2 * int(G.in_degree(v) > 0) - 1)
-
-        # known winners features
-        f.append(2 * int(u in K) - 1)
-        f.append(2 * int(v in K) - 1)
-
-        # if a in self.edge_to_cycle_occurrence:
-        #     f.extend(self.polynomialize(self.safe_div(self.edge_to_cycle_occurrence[a], self.num_cycles), 1))
-        # else:
-        #     f.extend(self.polynomialize(0, 1))
-
-        # voting rules scores
-        f.extend(self.polynomialize(self.plurality_scores[u], num_polynomial))
-        f.extend(self.polynomialize(self.plurality_scores[v], num_polynomial))
-        f.extend(self.polynomialize(self.borda_scores[u], num_polynomial))
-        f.extend(self.polynomialize(self.borda_scores[v], num_polynomial))
-        f.extend(self.polynomialize(self.copeland_scores[u], num_polynomial))
-        f.extend(self.polynomialize(self.copeland_scores[v], num_polynomial))
-        f.extend(self.polynomialize(self.maximin_scores[u], num_polynomial))
-        f.extend(self.polynomialize(self.maximin_scores[v], num_polynomial))
-
-        f.extend(self.vectorized_wmg)
-        f.extend(self.posmat)
-
-        # visited feature (always will be 1 since caching)
-        # f.extend([1])
-
-        # edge weight
-        f.extend(self.polynomialize(self.E_0[u][v]['weight'] / self.max_edge_weight, num_polynomial))
-
-        # adjacency matrix if a is added
-        G.add_edge(u,v)
+        # adjacency matrix
         adjacency = nx.adjacency_matrix(G, nodelist = I).todense()
         adjacency = np.multiply(adjacency, self.adjacency_0)
         adjacency_normalized = np.divide(adjacency, 10) # NOTE: update if not using n10
         f.extend(adjacency_normalized.flatten().tolist()[0])
-        G.remove_edge(u,v)
 
         # K representation
         K_list = []
@@ -328,20 +282,12 @@ class MechanismRankedPairs():
         f.extend(K_list)
 
         # tier adjacency matrix
-        legal_actions = T.copy()
-        T_matrix = np.zeros((10, 10)) # needs to change for anything not 10x10
-        for (c1,c2) in legal_actions:
-            T_matrix[c1,c2] = 1
-        T_vec = list(T_matrix.flatten())
-        f.extend(T_vec)
-
-        # edge connectivity
-        f.extend(self.polynomialize(avg_edge_connectivity(G, I, u), num_polynomial))
-        f.extend(self.polynomialize(avg_edge_connectivity(G, I, v), num_polynomial))
-
-        # node connectivity
-        f.extend(self.polynomialize(avg_node_connectivity(G, I, u), num_polynomial))
-        f.extend(self.polynomialize(avg_node_connectivity(G, I, v), num_polynomial))
+        # legal_actions = T.copy()
+        # T_matrix = np.zeros((10, 10)) # needs to change for anything not 10x10
+        # for (c1,c2) in legal_actions:
+        #     T_matrix[c1,c2] = 1
+        # T_vec = list(T_matrix.flatten())
+        # f.extend(T_vec)
 
         # node2vec every time
         # G_with_weights = nx.DiGraph()
@@ -451,6 +397,14 @@ class MechanismRankedPairs():
 
         stats.time_for_cycles += time.perf_counter() - start_cycles
 
+        # order the edges for model ease
+        edges_ordered = {}
+        index = 0
+        for i in range(len(I)):
+            for j in range(len(I)):
+                if i != j:
+                    edges_ordered[(i,j)] = index
+                    index += 1
 
         # Each node contains (G, E, tier)
         # root = Node(value=(self.edges2string(G.edges(), I), self.edges2string(E.edges(), I)))
@@ -553,6 +507,11 @@ class MechanismRankedPairs():
                 # Add each edge to stack by priority
                 children = dict()
                 T = sorted(T)
+
+                EUT = E.copy()
+                EUT.add_edges_from(T)
+                edges_to_priority_vec = model(self.state_features(G, EUT, I, known_winners, T))
+
                 for e in T:
                     if not G_tc.has_edge(e[1], e[0]):
                         f_found_max_children = 1
@@ -564,15 +523,7 @@ class MechanismRankedPairs():
                         Tc.remove(e)
                         child_node = Node(value=(Gc,Ec,Tc))
 
-                        # LPwinners
-                        # G_in_degree = Gc.in_degree(I)
-                        # potential_winners = set([x[0] for x in G_in_degree if x[1] == 0])
-                        # priority = len(potential_winners - known_winners)
-
-                        EUT = E.copy()
-                        EUT.add_edges_from(T)
-
-                        priority = model(self.state_features(G, EUT, I, known_winners, Tc, e))
+                        priority = edges_to_priority_vec[edges_ordered[e]]
 
                         children[child_node] = (priority, index)
                         index = index + 1
@@ -701,16 +652,17 @@ if __name__ == '__main__':
 
 
     # load RL model
-    D_in = 482
+    D_in = 110
     H1 = 1000
     H2 = 1000
-    D_out = 1
+    D_out = 90
     model = torch.nn.Sequential(
         torch.nn.Linear(D_in, H1),
         torch.nn.Sigmoid(),
         torch.nn.Linear(H1, H2),
         torch.nn.Sigmoid(),
-        torch.nn.Linear(H2, D_out)
+        torch.nn.Linear(H2, D_out),
+        torch.nn.Softmax(dim=0)
     )
 
     checkpoint_filename = "C:\\Users\\shepht2\\Documents\\School\\Masters\\STV Ranked Pairs\\RL\\results\\9-22\\results_RP_RL_main240295240_model.pth.tar"

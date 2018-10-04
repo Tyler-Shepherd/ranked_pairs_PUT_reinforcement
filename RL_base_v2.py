@@ -20,8 +20,9 @@ from pprint import pprint
 import glob
 
 # Base functions and training environment for RL
+# Expects softmax prediction over all actions as model output
 
-class RL_base():
+class RL_base_v2():
 
     def __init__(self, num_profiles):
         # Tunable learning parameters
@@ -53,13 +54,12 @@ class RL_base():
 
         # 1 = eps greedy
         # 2 = boltzmann
-        self.exploration_type = 2
+        self.exploration_type = 1
 
         # used in boltzmann
         self.tau_start = 1
         self.tau_end = 0.1
         self.tau_decay = 4000000
-        self.tau = self.tau_start
 
         # debug_mode
         # = 0: no output
@@ -75,16 +75,12 @@ class RL_base():
         agent.reset_environment()
 
         # While not reached goal state
-        while agent.at_goal_state()[0] == -1:
+        while agent.at_goal_state() == -1:
             legal_actions = agent.get_legal_actions()
 
             if self.debug_mode >= 2:
                 agent.print_state()
                 print("legal actions:", legal_actions)
-
-            if self.debug_mode >= 3:
-                for e in legal_actions:
-                    print("action, q val", e, agent.get_Q_val(e).item())
 
             if len(legal_actions) == 0:
                 # No possible actions
@@ -111,26 +107,28 @@ class RL_base():
                         print("randomly select action", a)
                 else:
                     # Otherwise greedily choose best action
+                    action_Q_vals = agent.get_Q_vals()
                     max_action = None
                     max_action_val = float("-inf")
+
                     for e in legal_actions:
-                        action_Q_val = agent.get_Q_val(e)
+                        action_Q_val = action_Q_vals[e]
                         if action_Q_val > max_action_val:
                             max_action = e
                             max_action_val = action_Q_val
 
                     a = max_action
-                    if max_action == None:
-                        print('None?')
+                    assert max_action is not None
                     if self.debug_mode >= 2:
                         print("greedily select action", a, "with q val", max_action_val)
             elif self.exploration_type == 2:
                 # Boltzmann
+                # TODO: fix
                 q_vals = []
-                self.tau = self.tau_end + (self.tau_start - self.tau_end) * math.exp(
+                tau = self.tau_end + (self.tau_start - self.tau_end) * math.exp(
                     -1. * agent.running_nodes / self.tau_decay)
                 for e in legal_actions:
-                    q_vals.append(exp(agent.get_Q_val(e).item() / self.tau))
+                    q_vals.append(exp(agent.get_Q_val(e).item() / tau))
                 q_sum = sum(q_vals)
                 probs = []
                 for v in q_vals:
@@ -200,7 +198,10 @@ class RL_base():
         # this works since we are backpropogating based on state and a
         # and old_q_value is computed using the model network, which gets the Variable correctly
         # and creates the gradient operation graph
-        old_q_value = agent.get_Q_val(a)
+
+        action_Q_vals = agent.get_Q_vals()
+
+        old_q_value = action_Q_vals[a]
 
         # Actually updates the agent state
         agent.make_move(a)
@@ -217,8 +218,10 @@ class RL_base():
             # Estimate of next state is just 0 (since there is no next state)
             max_next_q_val = 0
 
+        action_next_Q_vals = agent.get_Q_vals(use_target_net=True)
+
         for e in next_legal_actions:
-            max_next_q_val = max(max_next_q_val, agent.get_Q_val(e, use_target_net=True))
+            max_next_q_val = max(max_next_q_val, action_next_Q_vals[e])
 
         new_q_value = new_reward + self.discount_factor * max_next_q_val
 

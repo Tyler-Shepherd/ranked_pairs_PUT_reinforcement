@@ -28,6 +28,8 @@ sys.path.append('..//..//node2vec-master//src')
 import node2vec
 import main as node2vecmain
 
+# model returns softmax probabilities over all edges
+
 class RP_RL_stats():
     def __init__(self):
         self.num_nodes = 0
@@ -162,7 +164,7 @@ def avg_node_connectivity(G, I, s):
 
 
 
-class RP_RL_agent():
+class RP_RL_agent_v2():
     def __init__(self, learning_rate = 0, loss_output_file = None):
         # Initialize learning model
 
@@ -173,9 +175,15 @@ class RP_RL_agent():
         self.m = 10.0
         self.n = 10.0
 
+        self.edges_ordered = []
+        for i in range(int(self.m)):
+            for j in range(int(self.m)):
+                if i != j:
+                    self.edges_ordered.append((i,j))
+
         self.D_in = 0
         # self.D_in += self.num_polynomial * 6 + 4 + 2 + self.num_polynomial * 8 + self.num_polynomial  # out/in, out/in binary, known winners, voting rules, edge weight
-        self.D_in += self.num_polynomial * 4 + 2 # out/in, in K
+        # self.D_in += self.num_polynomial * 4 + 2 # out/in, in K
         # self.D_in += 256 # node2vec
 
         if self.use_visited:
@@ -186,23 +194,25 @@ class RP_RL_agent():
 
         # self.D_in += self.m * (self.m-1) # vectorized wmg
         # self.D_in += self.m * self.m # posmat
-        # self.D_in += self.m * self.m # adjacency matrix
+        self.D_in += self.m * self.m # adjacency matrix
         # self.D_in += self.m * self.m # tier adjacency matrix
         # self.D_in += self.num_polynomial * 4 # edge and node connectivity
-        # self.D_in += self.m # K representation
+        self.D_in += self.m # K representation
 
         self.D_in = int(self.D_in)
 
         self.H1 = 1000 # first hidden dimension
         self.H2 = 1000 # second hidden dimension
-        self.D_out = 1  # output dimension, just want q value
+
+        self.D_out = int(self.m * (self.m-1))  # output dimension, values over all actions
 
         self.model = torch.nn.Sequential(
             torch.nn.Linear(self.D_in, self.H1),
             torch.nn.Sigmoid(),
             torch.nn.Linear(self.H1, self.H2),
             torch.nn.Sigmoid(),
-            torch.nn.Linear(self.H2, self.D_out)
+            torch.nn.Linear(self.H2, self.D_out),
+            torch.nn.Softmax(dim=0)
         )
 
         # target fixed network to use in updating loss for stabilization
@@ -213,7 +223,8 @@ class RP_RL_agent():
             torch.nn.Sigmoid(),
             torch.nn.Linear(self.H1, self.H2),
             torch.nn.Sigmoid(),
-            torch.nn.Linear(self.H2, self.D_out)
+            torch.nn.Linear(self.H2, self.D_out),
+            torch.nn.Softmax(dim=0)
         )
 
         for p in self.target_model.parameters():
@@ -256,12 +267,6 @@ class RP_RL_agent():
         # self.node2vec_args.num_walks = 1
         # self.node2vec_args.walk_length = 1
         # self.node2vec_args.dimensions = 2
-
-        self.f_shape_reward = 1
-
-        # used in testing v2
-        self.tau_for_testing = 0.1
-        self.cutoff_testing_iterations = 25000
 
         self.debug_mode = 0
 
@@ -347,9 +352,6 @@ class RP_RL_agent():
         self.posmat = profile2posmat(self.profile_matrix)
         self.adjacency_0 = nx.adjacency_matrix(self.E_0_really, nodelist=self.I).todense()
 
-        if self.f_shape_reward:
-            self.winners_visited = {}
-
         self.stats = RP_RL_stats()
 
     '''
@@ -386,23 +388,23 @@ class RP_RL_agent():
             self.stats.stop_condition_hits[2] += (1 * update_stats)
             if self.debug_mode >= 3:
                 print("at_goal_state: 2")
-            return 2, possible_winners
+            return 2
 
         # Stop Condition 1: E has no more edges
         if len(self.E.edges()) == 0:
             self.stats.stop_condition_hits[1] += (1 * update_stats)
             if self.debug_mode >= 3:
                 print("at_goal_state: 1")
-            return 1, possible_winners
+            return 1
 
         # Stop Condition 3: Exactly one node has indegree 0
         if len(possible_winners) == 1:
             self.stats.stop_condition_hits[3] += (1 * update_stats)
             if self.debug_mode >= 3:
                 print("at_goal_state: 3")
-            return 3, possible_winners
+            return 3
 
-        return -1, possible_winners
+        return -1
 
     '''
     Returns the highest weight edges in E that do not cause a cycle if added
@@ -441,75 +443,26 @@ class RP_RL_agent():
 
     # Returns input layer features at current state taking action a
     # a is an edge
-    def state_features(self, a):
-        u = a[0]
-        v = a[1]
-
+    def state_features(self):
         f = []
-
-        # out/in degree
-        f.extend(self.polynomialize(self.safe_div(self.G.out_degree(u), self.E_0.out_degree(u)), self.num_polynomial))
-        f.extend(self.polynomialize(self.safe_div(self.G.in_degree(u), self.E_0.in_degree(u)), self.num_polynomial))
-        f.extend(self.polynomialize(self.safe_div(self.G.out_degree(v), self.E_0.out_degree(v)), self.num_polynomial))
-        f.extend(self.polynomialize(self.safe_div(self.G.in_degree(v), self.E_0.in_degree(v)), self.num_polynomial))
-
-        # total degree
-        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(u) + self.G.in_degree(u), self.E_0.out_degree(u) + self.E_0.in_degree(u)), self.num_polynomial))
-        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(v) + self.G.in_degree(v), self.E_0.out_degree(v) + self.E_0.in_degree(v)), self.num_polynomial))
-
-        # binary "has out/in degree" features
-        # f.append(2 * int(self.G.out_degree(u) > 0) - 1)
-        # f.append(2 * int(self.G.in_degree(u) > 0) - 1)
-        # f.append(2 * int(self.G.out_degree(v) > 0) - 1)
-        # f.append(2 * int(self.G.in_degree(v) > 0) - 1)
-
-        # known winners features
-        f.append(2 * int(u in self.K) - 1)
-        f.append(2 * int(v in self.K) - 1)
-
-        # voting rules scores
-        # f.extend(self.polynomialize(self.plurality_scores[u], self.num_polynomial))
-        # f.extend(self.polynomialize(self.plurality_scores[v], self.num_polynomial))
-        # f.extend(self.polynomialize(self.borda_scores[u], self.num_polynomial))
-        # f.extend(self.polynomialize(self.borda_scores[v], self.num_polynomial))
-        # f.extend(self.polynomialize(self.copeland_scores[u], self.num_polynomial))
-        # f.extend(self.polynomialize(self.copeland_scores[v], self.num_polynomial))
-        # f.extend(self.polynomialize(self.maximin_scores[u], self.num_polynomial))
-        # f.extend(self.polynomialize(self.maximin_scores[v], self.num_polynomial))
 
         # f.extend(self.vectorized_wmg)
         # f.extend(self.posmat)
 
-        # num cycles feature
-        if self.use_cycles:
-            if a in self.edge_to_cycle_occurrence:
-                f.extend(self.polynomialize(self.safe_div(self.edge_to_cycle_occurrence[a], self.num_cycles), self.num_polynomial))
-            else:
-                f.extend(self.polynomialize(0, self.num_polynomial))
-
-        # visited feature
-        if self.use_visited:
-            f.extend(self.polynomialize(self.get_num_times_visited(), self.num_polynomial))
-
-        # edge weight
-        # f.extend(self.polynomialize(self.E_0_really[u][v]['weight'] / self.max_edge_weight, self.num_polynomial))
-
-        # adjacency matrix if a is added
-        # self.G.add_edge(u,v)
-        # adjacency = nx.adjacency_matrix(self.G, nodelist = self.I).todense()
-        # adjacency = np.multiply(adjacency, self.adjacency_0)
-        # adjacency_normalized = np.divide(adjacency, self.n)
-        # f.extend(adjacency_normalized.flatten().tolist()[0])
-        # self.G.remove_edge(u,v)
+        # adjacency matrix of current state
+        adjacency = nx.adjacency_matrix(self.G, nodelist = self.I).todense()
+        adjacency = np.multiply(adjacency, self.adjacency_0)
+        adjacency_normalized = np.divide(adjacency, self.n)
+        f.extend(adjacency_normalized.flatten().tolist()[0])
 
         # K representation
-        # K_list = []
-        # for i in self.I:
-        #     if i in self.K:
-        #         K_list.append(1)
-        #     else:
-        #         K_list.append(0)
-        # f.extend(K_list)
+        K_list = []
+        for i in self.I:
+            if i in self.K:
+                K_list.append(1)
+            else:
+                K_list.append(0)
+        f.extend(K_list)
 
         # tier adjacency matrix
         # legal_actions = self.get_legal_actions()
@@ -551,12 +504,19 @@ class RP_RL_agent():
         return Variable(torch.from_numpy(np.array(f)).float())
         # return Variable(torch.from_numpy(node2vec_f).float())
 
-    def get_Q_val(self, a, use_target_net=False, update_gradient=True):
-        state_features = self.state_features(a)
+    def get_Q_vals(self, use_target_net=False):
+        state_features = self.state_features()
 
         if use_target_net:
-            return self.target_model(state_features)
-        return self.model(state_features)
+            q_vals_vector = self.target_model(state_features)
+        else:
+            q_vals_vector = self.model(state_features)
+
+        q_vals_dict = {}
+        for i in range(self.D_out):
+            q_vals_dict[self.edges_ordered[i]] = q_vals_vector[i]
+
+        return q_vals_dict
 
     # Adds new PUT-winners to self.known_winners
     def goal_state_update(self):
@@ -648,7 +608,7 @@ class RP_RL_agent():
 
 
     def reward(self):
-        current_state, possible_winners = self.at_goal_state(update_stats=0)
+        current_state = self.at_goal_state(update_stats=0)
 
         if current_state == -1:
             # Not a goal state
@@ -658,16 +618,7 @@ class RP_RL_agent():
             reward_val = -1
         else:
             # Found a new winner
-            if self.f_shape_reward:
-                reward_val = 0
-                for w in possible_winners:
-                    if w not in self.K:
-                        if w not in self.winners_visited:
-                            self.winners_visited[w] = 0
-                        self.winners_visited[w] += 1
-                        reward_val += 1.0 / self.winners_visited[w]
-            else:
-                reward_val = 1
+            reward_val = 1
 
         return torch.tensor(reward_val, dtype = torch.float32)
 
@@ -729,6 +680,7 @@ class RP_RL_agent():
         print("model saved")
 
 
+    # don't use true_winners for this
     def test_model(self, test_env, num_iterations, true_winners = set()):
         self.initialize(test_env)
 
@@ -748,7 +700,7 @@ class RP_RL_agent():
 
                 num_iters_to_find_all_winners += 1
 
-                while self.at_goal_state()[0] == -1:
+                while self.at_goal_state() == -1:
                     legal_actions = self.get_legal_actions()
 
                     if len(legal_actions) == 0:
@@ -786,26 +738,27 @@ class RP_RL_agent():
 
         return self.known_winners, times_discovered, num_iters_to_find_all_winners
 
-
-    # tests "how many samples to find all winners"
-    def test_model_v2(self, test_env, true_winners):
+    # not used
+    def test_model_full(self, test_env, num_iterations, true_winners = set()):
         self.initialize(test_env)
 
-        times_discovered = {}
+        times_discovered = []
         num_iters_to_find_all_winners = 0
 
         # Sample using model greedily
+        # Test with fixed number of iterations
         with torch.no_grad():
+            for iter in range(num_iterations):
             # Test till found all winners
-            while self.known_winners != true_winners and num_iters_to_find_all_winners <= self.cutoff_testing_iterations:
-                assert self.known_winners < true_winners
-
+            # while self.known_winners != true_winners:
                 self.reset_environment()
                 self.K = frozenset(self.known_winners)
 
+                # print(self.known_winners, true_winners)
+
                 num_iters_to_find_all_winners += 1
 
-                while self.at_goal_state()[0] == -1:
+                while self.at_goal_state() == -1:
                     legal_actions = self.get_legal_actions()
 
                     if len(legal_actions) == 0:
@@ -813,30 +766,33 @@ class RP_RL_agent():
                         break
 
                     # for random action selection testing
-                    # selected_action = legal_actions[random.randint(0, len(legal_actions) - 1)]
+                    # max_action = legal_actions[random.randint(0, len(legal_actions) - 1)]
 
-                    # Boltzmann
-                    q_vals = []
-                    q_vals_blah = []
+                    max_action = None
+                    max_action_val = float("-inf")
                     for e in legal_actions:
-                        q_vals_blah.append(self.get_Q_val(e).item())
-                        q_vals.append(exp(self.get_Q_val(e).item() / self.tau_for_testing))
-                    q_sum = sum(q_vals)
-                    probs = []
-                    for v in q_vals:
-                        probs.append(v / q_sum)
-                    legal_actions_index = [i for i in range(len(legal_actions))]
-                    selected_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
+                        action_val = self.get_Q_val(e)
 
-                    assert selected_action is not None
+                        if action_val > max_action_val:
+                            max_action = e
+                            max_action_val = action_val
 
-                    self.make_move(selected_action, f_testing = True)
+                    assert (max_action is not None)
+
+                    self.make_move(max_action, f_testing = True)
 
                 # At goal state
                 new_winners = self.goal_state_update()
 
                 for c in new_winners:
-                    times_discovered[c] = num_iters_to_find_all_winners
+                    times_discovered.append(iter)
+
+        # print("done:", num_iters_to_find_all_winners)
+        # print("time to make move", time_to_make_move)
+        # print("time for actions", time_for_actions)
+        # print("time for legal actions", time_for_legal_actions)
+        # print("time for rest", time_for_reset)
+        # print("time for state str", self.time_for_state_str)
 
         return self.known_winners, times_discovered, num_iters_to_find_all_winners
 

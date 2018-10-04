@@ -381,6 +381,7 @@ if __name__ == '__main__':
             print("test", epoch, test_results / len(test_data))
             test_output_file.write(str(epoch) + '\t' + str(test_results / len(test_data)) + '\n')
             test_output_file.flush()
+            torch.save(model.state_dict(), "RP_supervised_learning_model_" + str(epoch) + ".pth.tar")
 
         epoch_start = time.perf_counter()
 
