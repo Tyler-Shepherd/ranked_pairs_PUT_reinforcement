@@ -104,13 +104,13 @@ if __name__ == '__main__':
     # agent = RP_RL_agent_v2()
 
     # agent.load_model("C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\data\\\\m10n10-100k\\checkpoint.pth.tar")
-    agent.load_model("C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\10-1\\results_RP_RL_main882861866_model.pth.tar")
+    agent.load_model("C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\10-3\\results_RP_RL_main161490381_model.pth.tar")
 
     agent.initialize(profile)
     agent.reset_environment()
 
     output_file = open("weight_output.txt", 'w+')
-    agent.print_model(output_file)
+    # agent.print_model(output_file)
 
     agent.K = frozenset({0, 1, 2, 4, 5, 6, 8, 9})
 

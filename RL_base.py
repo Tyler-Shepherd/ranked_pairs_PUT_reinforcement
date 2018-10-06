@@ -58,7 +58,7 @@ class RL_base():
         # used in boltzmann
         self.tau_start = 1
         self.tau_end = 0.1
-        self.tau_decay = 4000000
+        self.tau_decay = 1500000
         self.tau = self.tau_start
 
         # debug_mode
@@ -165,14 +165,23 @@ class RL_base():
 
         iter_to_find_all_winners = 0
 
+        iter_to_find_winner = {}
+        prev_winners = set()
+
         if f_train_until_found_all_winners:
             while agent.known_winners != true_winners:
+                assert agent.known_winners < true_winners
+
                 self.learning_iteration(agent)
 
                 if iter_to_find_all_winners % self.update_target_network_every == 0:
                     agent.target_model.load_state_dict(agent.model.state_dict())
 
                 iter_to_find_all_winners += 1
+
+                for c in agent.known_winners - prev_winners:
+                    iter_to_find_winner[c] = iter_to_find_all_winners
+                prev_winners = agent.known_winners.copy()
 
         for iter in range(self.num_iterations):
             self.learning_iteration(agent)

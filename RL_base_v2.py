@@ -54,12 +54,13 @@ class RL_base_v2():
 
         # 1 = eps greedy
         # 2 = boltzmann
-        self.exploration_type = 1
+        self.exploration_type = 2
 
         # used in boltzmann
         self.tau_start = 1
         self.tau_end = 0.1
         self.tau_decay = 4000000
+        self.tau = self.tau_start
 
         # debug_mode
         # = 0: no output
@@ -123,15 +124,17 @@ class RL_base_v2():
                         print("greedily select action", a, "with q val", max_action_val)
             elif self.exploration_type == 2:
                 # Boltzmann
-                # TODO: fix
-                q_vals = []
-                tau = self.tau_end + (self.tau_start - self.tau_end) * math.exp(
+                self.tau = self.tau_end + (self.tau_start - self.tau_end) * math.exp(
                     -1. * agent.running_nodes / self.tau_decay)
+
+                action_Q_vals = agent.get_Q_vals()
+                q_vals_boltz = []
+
                 for e in legal_actions:
-                    q_vals.append(exp(agent.get_Q_val(e).item() / tau))
-                q_sum = sum(q_vals)
+                    q_vals_boltz.append(exp(action_Q_vals[e].item() / self.tau))
+                q_sum = sum(q_vals_boltz)
                 probs = []
-                for v in q_vals:
+                for v in q_vals_boltz:
                     probs.append(v / q_sum)
                 legal_actions_index = [i for i in range(len(legal_actions))]
                 a = legal_actions[np.random.choice(legal_actions_index, p=probs)]

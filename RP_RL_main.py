@@ -28,9 +28,9 @@ from PUT_RP_using_model_v2 import MechanismRankedPairs_v2
 
 sys.path.append('./RL')
 from RL_base import RL_base
-from RL_base_experience_replay import RL_base_experience_replay
+#from RL_base_experience_replay import RL_base_experience_replay
 from RP_RL_agent import RP_RL_agent
-from RP_RL_agent_node2vec import RP_RL_agent_node2vec
+#from RP_RL_agent_node2vec import RP_RL_agent_node2vec
 from RL_base_v2 import RL_base_v2
 from RP_RL_agent_v2 import RP_RL_agent_v2
 
@@ -72,7 +72,7 @@ def read_Y_prediction(inputfile):
 def test_model_find_all_winners(test_output_file, agent, test_filenames, true_winners, model_id, num_times_tested):
     agent.save_model(str(model_id) + "_test_" + str(num_times_tested))
 
-    print("Starting test")
+    print("Starting PUT_RP_using_model test")
     test_output_file.write('***********************************\n')
 
     start_test = time.perf_counter()
@@ -113,19 +113,20 @@ def test_model_find_all_winners(test_output_file, agent, test_filenames, true_wi
 
 
 
-def test_model(test_output_file, agent, test_filenames, true_winners, model_id):
+def test_model(test_output_file, agent, test_filenames, true_winners, model_id, num_times_tested):
     # Test the agents learned model
+    agent.save_model(str(model_id) + "_test_" + str(num_times_tested))
 
     num_found_test = 0
     num_total_iterations = 0
     j = 0
 
-    agent.save_model(model_id)
-
     if f_use_testing_v2:
         print("Starting test v2")
     else:
         print("Starting test")
+
+    print(test_header)
 
     start = time.perf_counter()
 
@@ -182,14 +183,17 @@ test_at_start = 1
 shuffle_training_data = 0
 
 # Number of iterations to use when testing
+# Doesn't matter if using test_till_find_all_winners of testing_v2
 num_test_iterations = 10
 
 # Whether to initialize model from default values (for comparison purposes)
-f_start_from_default = 0
+f_start_from_default = 1
 
 f_experience_replay = 0
 
 f_train_till_find_all_winners = 0
+
+# Uses PUT_RP_using_model
 f_test_till_find_all_winners = 0
 
 # v2 has network return values for all edges
@@ -200,7 +204,7 @@ f_use_testing_v2 = 1
 
 # Path to default model (used only if f_start_from_default)
 # default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\data\\\\m10n10-100k\\default_agent_7_features.pth.tar"
-default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\10-2\\results_RP_RL_main968971866_model.pth.tar"
+default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\10-3\\results_RP_RL_main161490381_model.pth.tar"
 
 
 if __name__ == '__main__':
@@ -314,6 +318,10 @@ if __name__ == '__main__':
         parameters_file.write("Exploration Rate Decay End\t" + str(base.exploration_rate_end) + '\n')
         parameters_file.write("Exploration Rate Decay Rate\t" + str(base.exploration_rate_decay) + '\n')
     parameters_file.write("Num Iterations per Profile\t" + str(base.num_iterations) + '\n')
+    if base.exploration_type == 2:
+        parameters_file.write("Tau Start\t" + str(base.tau_start) + '\n')
+        parameters_file.write("Tau End\t" + str(base.tau_end) + '\n')
+        parameters_file.write("Tau Decay\t" + str(base.tau_decay) + '\n')
     parameters_file.write("Agent D_in\t" + str(agent.D_in) + '\n')
     parameters_file.write("Agent H1\t" + str(agent.H1) + '\n')
     parameters_file.write("Agent H2\t" + str(agent.H2) + '\n')
@@ -351,8 +359,9 @@ if __name__ == '__main__':
         random.shuffle(train_filenames)
 
     # Read true winners
+    os.chdir(rpconfig.winners_path)
     true_winners = []
-    winners_file = open("../../Winners/winners_14k.txt", 'r')
+    winners_file = open("./winners_14k.txt", 'r')
     for line in winners_file:
         winners = []
         for c in line:
@@ -360,6 +369,7 @@ if __name__ == '__main__':
                 continue
             winners.append(int(c))
         true_winners.append(winners)
+    os.chdir(rpconfig.path)
 
     # split true_winners into train and test
     true_winners_train = true_winners[:10000] + true_winners[11000:]
@@ -367,19 +377,19 @@ if __name__ == '__main__':
     # true_winners_test = [[8, 1, 3, 6]]
 
     if not f_test_till_find_all_winners:
-        test_output_file.write('Profile\tPUT-Winners\tNum Winners\tMissed Winners\tNum Missed Winners\tNum Iters\tIter Discoverd\tRuntime\n')
+        test_header = 'Profile\tPUT-Winners\tNum Winners\tMissed Winners\tNum Missed Winners\tNum Iters\tIter Discoverd\tRuntime'
     else:
         test_header = "inputfile\tPUT-winners\tnum nodes\tdiscovery states\tmax discovery state\tdiscovery times\tmax discovery times\tstop condition hits\tsum stop cond hits\tnum hashes\tnum initial bridges\tnum redundant edges\ttime for cycles\truntime"
-        test_output_file.write(test_header+'\n')
+    test_output_file.write(test_header + '\n')
 
     for inputfile in train_filenames:
         if i % test_every == 0 and (test_at_start or i != 0):
-            print("output:", output_filename)
+            print("Output:", output_filename)
 
             if f_test_till_find_all_winners:
                 test_model_find_all_winners(test_output_file, agent, test_filenames, true_winners_test, model_id, num_times_tested)
             else:
-                test_model(test_output_file, agent, test_filenames, true_winners_test, model_id)
+                test_model(test_output_file, agent, test_filenames, true_winners_test, model_id, num_times_tested)
 
             num_times_tested += 1
 
@@ -420,11 +430,11 @@ if __name__ == '__main__':
         i += 1
 
     # Final test
-    print("output:", output_filename)
+    print("Output:", output_filename)
     if f_test_till_find_all_winners:
         test_model_find_all_winners(test_output_file, agent, test_filenames, true_winners_test, model_id, num_times_tested)
     else:
-        test_model(test_output_file, agent, test_filenames, true_winners, model_id)
+        test_model(test_output_file, agent, test_filenames, true_winners, model_id, num_times_tested)
 
     print("Total Time to Train: %f" % total_time)
     print("Average Time: %f" % (total_time / num_profiles))

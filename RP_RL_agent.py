@@ -798,6 +798,8 @@ class RP_RL_agent():
         with torch.no_grad():
             # Test till found all winners
             while self.known_winners != true_winners and num_iters_to_find_all_winners <= self.cutoff_testing_iterations:
+                if not self.known_winners < true_winners:
+                    print(self.known_winners, true_winners)
                 assert self.known_winners < true_winners
 
                 self.reset_environment()

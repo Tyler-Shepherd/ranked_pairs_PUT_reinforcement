@@ -24,9 +24,9 @@ import random
 from pprint import pprint
 import glob
 
-sys.path.append('..//..//node2vec-master//src')
-import node2vec
-import main as node2vecmain
+#sys.path.append('..//..//node2vec-master//src')
+#import node2vec
+#import main as node2vecmain
 
 # model returns softmax probabilities over all edges
 
@@ -258,15 +258,21 @@ class RP_RL_agent_v2():
         self.stats = RP_RL_stats()
 
         # node2vec stuff
-        self.node2vec_args = node2vecmain.parse_args()
-        self.node2vec_args.directed = True
-        self.node2vec_args.weighted = False
-        self.node2vec_args.unweighted = True
-        self.node2vec_args.undirected = False
-        self.node2vec_args.output = "node2vec_output.emb"
+        # self.node2vec_args = node2vecmain.parse_args()
+        # self.node2vec_args.directed = True
+        # self.node2vec_args.weighted = False
+        # self.node2vec_args.unweighted = True
+        # self.node2vec_args.undirected = False
+        # self.node2vec_args.output = "node2vec_output.emb"
         # self.node2vec_args.num_walks = 1
         # self.node2vec_args.walk_length = 1
         # self.node2vec_args.dimensions = 2
+
+        self.f_shape_reward = 1
+
+        # used in testing v2
+        self.tau_for_testing = 0.1
+        self.cutoff_testing_iterations = 25000
 
         self.debug_mode = 0
 
