@@ -24,26 +24,19 @@ import random
 from pprint import pprint
 import glob
 
-sys.path.append('..//..//node2vec-master//src')
-import node2vec
-import main as node2vecmain
+# sys.path.append('..//..//node2vec-master//src')
+# import node2vec
+# import main as node2vecmain
+
+import params as params
 
 class RP_RL_stats():
     def __init__(self):
         self.num_nodes = 0
         self.stop_condition_hits = {1: 0, 2: 0, 3: 0}
 
-        # loss over entire profile
+        # loss over each profile
         self.running_loss = 0
-
-        self.time_for_node2vec = 0
-        self.time_for_G_with_weights = 0
-        self.time_for_node2vecgraph = 0
-        self.time_for_node2vectransitions = 0
-        self.time_for_simulate_walks = 0
-
-        # cycles, visited, adjacency
-        self.time_for_features = [0, 0, 0]
 
 # Util functions
 def init_weights(m):
@@ -107,7 +100,7 @@ def maximin_score(wmg):
     maximinscores_normalized = list(1.*np.array(maximinscores)/n)
     return maximinscores_normalized
 
-# just vectorizes the wmg
+# Vectorizes the wmg
 # input: wmg
 # output: vectorized weighted majority graph. sorted by candidates, then by opponents,
 #   normalized by no. of voters
@@ -165,56 +158,27 @@ def avg_node_connectivity(G, I, s):
 class RP_RL_agent():
     def __init__(self, learning_rate = 0, loss_output_file = None):
         # Initialize learning model
-
-        self.num_polynomial = 1
-        self.use_visited = False
-        self.use_cycles = False
-
-        self.m = 10.0
-        self.n = 10.0
-
-        self.D_in = 0
-        # self.D_in += self.num_polynomial * 6 + 4 + 2 + self.num_polynomial * 8 + self.num_polynomial  # out/in, out/in binary, known winners, voting rules, edge weight
-        self.D_in += self.num_polynomial * 4 + 2 # out/in, in K
-        # self.D_in += 256 # node2vec
-
-        if self.use_visited:
-            self.D_in += self.num_polynomial
-
-        if self.use_cycles:
-            self.D_in += self.num_polynomial
-
-        # self.D_in += self.m * (self.m-1) # vectorized wmg
-        # self.D_in += self.m * self.m # posmat
-        # self.D_in += self.m * self.m # adjacency matrix
-        # self.D_in += self.m * self.m # tier adjacency matrix
-        # self.D_in += self.num_polynomial * 4 # edge and node connectivity
-        # self.D_in += self.m # K representation
-
-        self.D_in = int(self.D_in)
-
-        self.H1 = 1000 # first hidden dimension
-        self.H2 = 1000 # second hidden dimension
-        self.D_out = 1  # output dimension, just want q value
-
         self.model = torch.nn.Sequential(
-            torch.nn.Linear(self.D_in, self.H1),
+            torch.nn.Linear(params.D_in, params.H1),
             torch.nn.Sigmoid(),
-            torch.nn.Linear(self.H1, self.H2),
+            torch.nn.Linear(params.H1, params.H2),
             torch.nn.Sigmoid(),
-            torch.nn.Linear(self.H2, self.D_out)
+            torch.nn.Linear(params.H2, params.D_out)
         )
 
         # target fixed network to use in updating loss for stabilization
         # gets updated to self.model periodically
         # https://pytorch.org/tutorials/intermediate/reinforcement_q_learning.html
         self.target_model = torch.nn.Sequential(
-            torch.nn.Linear(self.D_in, self.H1),
+            torch.nn.Linear(params.D_in, params.H1),
             torch.nn.Sigmoid(),
-            torch.nn.Linear(self.H1, self.H2),
+            torch.nn.Linear(params.H1, params.H2),
             torch.nn.Sigmoid(),
-            torch.nn.Linear(self.H2, self.D_out)
+            torch.nn.Linear(params.H2, params.D_out)
         )
+
+        # self.loss_fn = torch.nn.MSELoss(size_average=False)  # using mean squared error
+        self.loss_fn = torch.nn.SmoothL1Loss(size_average=False) # Huber loss
 
         for p in self.target_model.parameters():
             p.requires_grad = False
@@ -222,24 +186,16 @@ class RP_RL_agent():
         self.model.apply(init_weights)
         self.target_model.load_state_dict(self.model.state_dict())
 
-        #print("INIT")
-        #self.print_model("")
-
-        # self.loss_fn = torch.nn.MSELoss(size_average=False)  # using mean squared error
-        self.loss_fn = torch.nn.SmoothL1Loss(size_average=False) # Huber loss
-
         # loss reset every time it gets printed
+        # can sum over multiple profiles
         self.running_loss = 0
+
+        # total number of running nodes over all training
         self.running_nodes = 0
-        self.print_loss_every = 10000
 
         self.loss_output_file = loss_output_file
 
-        # 1 = gradient descent
-        # 2 = adam
-        self.optimizer_type = 1
-
-        if self.optimizer_type == 2:
+        if params.optimizer_algo == 2:
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
 
         self.visited = {}
@@ -247,23 +203,15 @@ class RP_RL_agent():
         self.stats = RP_RL_stats()
 
         # node2vec stuff
-        self.node2vec_args = node2vecmain.parse_args()
-        self.node2vec_args.directed = True
-        self.node2vec_args.weighted = False
-        self.node2vec_args.unweighted = True
-        self.node2vec_args.undirected = False
-        self.node2vec_args.output = "node2vec_output.emb"
+        # self.node2vec_args = node2vecmain.parse_args()
+        # self.node2vec_args.directed = True
+        # self.node2vec_args.weighted = False
+        # self.node2vec_args.unweighted = True
+        # self.node2vec_args.undirected = False
+        # self.node2vec_args.output = "node2vec_output.emb"
         # self.node2vec_args.num_walks = 1
         # self.node2vec_args.walk_length = 1
         # self.node2vec_args.dimensions = 2
-
-        self.f_shape_reward = 1
-
-        # used in testing v2
-        self.tau_for_testing = 0.1
-        self.cutoff_testing_iterations = 25000
-
-        self.debug_mode = 0
 
     '''
     Initializes environment for an iteration of learning
@@ -304,7 +252,7 @@ class RP_RL_agent():
 
         # Compute cycles
         # too slow for m50n50
-        if self.use_cycles:
+        if params.use_cycles:
             cycles = nx.simple_cycles(Gc)
 
             self.num_cycles = 0
@@ -347,7 +295,7 @@ class RP_RL_agent():
         self.posmat = profile2posmat(self.profile_matrix)
         self.adjacency_0 = nx.adjacency_matrix(self.E_0_really, nodelist=self.I).todense()
 
-        if self.f_shape_reward:
+        if params.f_shape_reward:
             self.winners_visited = {}
 
         self.stats = RP_RL_stats()
@@ -368,7 +316,7 @@ class RP_RL_agent():
                 self.K.add(a)
         self.K = frozenset(self.K)
 
-        if self.use_visited:
+        if params.use_visited:
             self.update_visited()
 
     '''
@@ -384,21 +332,21 @@ class RP_RL_agent():
         # Stop Condition 2: Pruning. Possible winners are subset of known winners
         if set(possible_winners) <= self.K:
             self.stats.stop_condition_hits[2] += (1 * update_stats)
-            if self.debug_mode >= 3:
+            if params.debug_mode >= 3:
                 print("at_goal_state: 2")
             return 2, possible_winners
 
         # Stop Condition 1: E has no more edges
         if len(self.E.edges()) == 0:
             self.stats.stop_condition_hits[1] += (1 * update_stats)
-            if self.debug_mode >= 3:
+            if params.debug_mode >= 3:
                 print("at_goal_state: 1")
             return 1, possible_winners
 
         # Stop Condition 3: Exactly one node has indegree 0
         if len(possible_winners) == 1:
             self.stats.stop_condition_hits[3] += (1 * update_stats)
-            if self.debug_mode >= 3:
+            if params.debug_mode >= 3:
                 print("at_goal_state: 3")
             return 3, possible_winners
 
@@ -448,85 +396,95 @@ class RP_RL_agent():
         f = []
 
         # out/in degree
-        f.extend(self.polynomialize(self.safe_div(self.G.out_degree(u), self.E_0.out_degree(u)), self.num_polynomial))
-        f.extend(self.polynomialize(self.safe_div(self.G.in_degree(u), self.E_0.in_degree(u)), self.num_polynomial))
-        f.extend(self.polynomialize(self.safe_div(self.G.out_degree(v), self.E_0.out_degree(v)), self.num_polynomial))
-        f.extend(self.polynomialize(self.safe_div(self.G.in_degree(v), self.E_0.in_degree(v)), self.num_polynomial))
+        if params.use_in_out:
+            f.extend(self.polynomialize(self.safe_div(self.G.out_degree(u), self.E_0.out_degree(u)), params.num_polynomial))
+            f.extend(self.polynomialize(self.safe_div(self.G.in_degree(u), self.E_0.in_degree(u)), params.num_polynomial))
+            f.extend(self.polynomialize(self.safe_div(self.G.out_degree(v), self.E_0.out_degree(v)), params.num_polynomial))
+            f.extend(self.polynomialize(self.safe_div(self.G.in_degree(v), self.E_0.in_degree(v)), params.num_polynomial))
 
         # total degree
-        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(u) + self.G.in_degree(u), self.E_0.out_degree(u) + self.E_0.in_degree(u)), self.num_polynomial))
-        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(v) + self.G.in_degree(v), self.E_0.out_degree(v) + self.E_0.in_degree(v)), self.num_polynomial))
+        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(u) + self.G.in_degree(u), self.E_0.out_degree(u) + self.E_0.in_degree(u)), params.num_polynomial))
+        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(v) + self.G.in_degree(v), self.E_0.out_degree(v) + self.E_0.in_degree(v)), params.num_polynomial))
 
         # binary "has out/in degree" features
-        # f.append(2 * int(self.G.out_degree(u) > 0) - 1)
-        # f.append(2 * int(self.G.in_degree(u) > 0) - 1)
-        # f.append(2 * int(self.G.out_degree(v) > 0) - 1)
-        # f.append(2 * int(self.G.in_degree(v) > 0) - 1)
+        if params.use_in_out_binary:
+            f.append(2 * int(self.G.out_degree(u) > 0) - 1)
+            f.append(2 * int(self.G.in_degree(u) > 0) - 1)
+            f.append(2 * int(self.G.out_degree(v) > 0) - 1)
+            f.append(2 * int(self.G.in_degree(v) > 0) - 1)
 
         # known winners features
-        f.append(2 * int(u in self.K) - 1)
-        f.append(2 * int(v in self.K) - 1)
+        if params.use_K:
+            f.append(2 * int(u in self.K) - 1)
+            f.append(2 * int(v in self.K) - 1)
 
         # voting rules scores
-        # f.extend(self.polynomialize(self.plurality_scores[u], self.num_polynomial))
-        # f.extend(self.polynomialize(self.plurality_scores[v], self.num_polynomial))
-        # f.extend(self.polynomialize(self.borda_scores[u], self.num_polynomial))
-        # f.extend(self.polynomialize(self.borda_scores[v], self.num_polynomial))
-        # f.extend(self.polynomialize(self.copeland_scores[u], self.num_polynomial))
-        # f.extend(self.polynomialize(self.copeland_scores[v], self.num_polynomial))
-        # f.extend(self.polynomialize(self.maximin_scores[u], self.num_polynomial))
-        # f.extend(self.polynomialize(self.maximin_scores[v], self.num_polynomial))
+        if params.use_voting_rules:
+            f.extend(self.polynomialize(self.plurality_scores[u], params.num_polynomial))
+            f.extend(self.polynomialize(self.plurality_scores[v], params.num_polynomial))
+            f.extend(self.polynomialize(self.borda_scores[u], params.num_polynomial))
+            f.extend(self.polynomialize(self.borda_scores[v], params.num_polynomial))
+            f.extend(self.polynomialize(self.copeland_scores[u], params.num_polynomial))
+            f.extend(self.polynomialize(self.copeland_scores[v], params.num_polynomial))
+            f.extend(self.polynomialize(self.maximin_scores[u], params.num_polynomial))
+            f.extend(self.polynomialize(self.maximin_scores[v], params.num_polynomial))
 
-        # f.extend(self.vectorized_wmg)
-        # f.extend(self.posmat)
+        if params.use_vectorized_wmg:
+            f.extend(self.vectorized_wmg)
+
+        if params.use_posmat:
+            f.extend(self.posmat)
 
         # num cycles feature
-        if self.use_cycles:
+        if params.use_cycles:
             if a in self.edge_to_cycle_occurrence:
-                f.extend(self.polynomialize(self.safe_div(self.edge_to_cycle_occurrence[a], self.num_cycles), self.num_polynomial))
+                f.extend(self.polynomialize(self.safe_div(self.edge_to_cycle_occurrence[a], self.num_cycles), params.num_polynomial))
             else:
-                f.extend(self.polynomialize(0, self.num_polynomial))
+                f.extend(self.polynomialize(0, params.num_polynomial))
 
         # visited feature
-        if self.use_visited:
-            f.extend(self.polynomialize(self.get_num_times_visited(), self.num_polynomial))
+        if params.use_visited:
+            f.extend(self.polynomialize(self.get_num_times_visited(), params.num_polynomial))
 
         # edge weight
-        # f.extend(self.polynomialize(self.E_0_really[u][v]['weight'] / self.max_edge_weight, self.num_polynomial))
+        if params.use_edge_weight:
+            f.extend(self.polynomialize(self.E_0_really[u][v]['weight'] / self.max_edge_weight, params.num_polynomial))
 
         # adjacency matrix if a is added
-        # self.G.add_edge(u,v)
-        # adjacency = nx.adjacency_matrix(self.G, nodelist = self.I).todense()
-        # adjacency = np.multiply(adjacency, self.adjacency_0)
-        # adjacency_normalized = np.divide(adjacency, self.n)
-        # f.extend(adjacency_normalized.flatten().tolist()[0])
-        # self.G.remove_edge(u,v)
+        if params.use_adjacency_matrix:
+            self.G.add_edge(u,v)
+            adjacency = nx.adjacency_matrix(self.G, nodelist = self.I).todense()
+            adjacency = np.multiply(adjacency, self.adjacency_0)
+            adjacency_normalized = np.divide(adjacency, params.n)
+            f.extend(adjacency_normalized.flatten().tolist()[0])
+            self.G.remove_edge(u,v)
 
         # K representation
-        # K_list = []
-        # for i in self.I:
-        #     if i in self.K:
-        #         K_list.append(1)
-        #     else:
-        #         K_list.append(0)
-        # f.extend(K_list)
+        if params.use_K_representation:
+            K_list = []
+            for i in self.I:
+                if i in self.K:
+                    K_list.append(1)
+                else:
+                    K_list.append(0)
+            f.extend(K_list)
 
         # tier adjacency matrix
-        # legal_actions = self.get_legal_actions()
-        # legal_actions.remove(a)
-        # T = np.zeros((int(self.m), int(self.m)))
-        # for (c1,c2) in legal_actions:
-        #     T[c1,c2] = 1
-        # T_vec = list(T.flatten())
-        # f.extend(T_vec)
+        if params.use_tier_adjacency_matrix:
+            legal_actions = self.get_legal_actions()
+            legal_actions.remove(a)
+            T = np.zeros((int(params.m), int(params.m)))
+            for (c1,c2) in legal_actions:
+                T[c1,c2] = 1
+            T_vec = list(T.flatten())
+            f.extend(T_vec)
 
-        # edge connectivity
-        # f.extend(self.polynomialize(avg_edge_connectivity(self.G, self.I, u), self.num_polynomial))
-        # f.extend(self.polynomialize(avg_edge_connectivity(self.G, self.I, v), self.num_polynomial))
-
-        # node connectivity
-        # f.extend(self.polynomialize(avg_node_connectivity(self.G, self.I, u), self.num_polynomial))
-        # f.extend(self.polynomialize(avg_node_connectivity(self.G, self.I, v), self.num_polynomial))
+        # edge and node connectivity
+        if params.use_connectivity:
+            f.extend(self.polynomialize(avg_edge_connectivity(self.G, self.I, u), params.num_polynomial))
+            f.extend(self.polynomialize(avg_edge_connectivity(self.G, self.I, v), params.num_polynomial))
+            f.extend(self.polynomialize(avg_node_connectivity(self.G, self.I, u), params.num_polynomial))
+            f.extend(self.polynomialize(avg_node_connectivity(self.G, self.I, v), params.num_polynomial))
 
         # node2vec every time
         # G_with_weights = nx.DiGraph()
@@ -545,13 +503,13 @@ class RP_RL_agent():
 
         # node2vec_f = np.append(node2vec_uv, np.array(f))
 
-        if self.debug_mode >= 3:
+        if params.debug_mode >= 3:
             print("features", f)
 
         return Variable(torch.from_numpy(np.array(f)).float())
         # return Variable(torch.from_numpy(node2vec_f).float())
 
-    def get_Q_val(self, a, use_target_net=False, update_gradient=True):
+    def get_Q_val(self, a, use_target_net=False):
         state_features = self.state_features(a)
 
         if use_target_net:
@@ -570,7 +528,7 @@ class RP_RL_agent():
                 self.known_winners.add(c)
                 new_winners.append(c)
 
-        if self.debug_mode >= 2:
+        if params.debug_mode >= 2:
             print('goal state with new winners', new_winners)
 
         return new_winners
@@ -597,7 +555,7 @@ class RP_RL_agent():
     And performs reductions
     '''
     def make_move(self, a, f_testing = False):
-        if self.debug_mode >= 2:
+        if params.debug_mode >= 2:
             print('making move', a)
 
         self.G.add_edges_from([a])
@@ -631,16 +589,16 @@ class RP_RL_agent():
 
         self.stats.num_nodes += 1
 
-        if self.use_visited:
+        if params.use_visited:
             self.update_visited()
 
         if not f_testing:
             self.running_nodes += 1
 
-            if self.running_nodes % self.print_loss_every == 0:
-                print("*******LOSS:", self.running_loss / self.print_loss_every)
+            if self.running_nodes % params.print_loss_every == 0:
+                print("*******LOSS:", self.running_loss / params.print_loss_every)
                 if self.loss_output_file:
-                    self.loss_output_file.write(str(self.running_nodes) + '\t' + str(self.running_loss / self.print_loss_every) + '\n')
+                    self.loss_output_file.write(str(self.running_nodes) + '\t' + str(self.running_loss / params.print_loss_every) + '\n')
                     self.loss_output_file.flush()
 
                 self.running_loss = 0
@@ -658,7 +616,7 @@ class RP_RL_agent():
             reward_val = -1
         else:
             # Found a new winner
-            if self.f_shape_reward:
+            if params.f_shape_reward:
                 reward_val = 0
                 for w in possible_winners:
                     if w not in self.K:
@@ -685,10 +643,10 @@ class RP_RL_agent():
         self.stats.running_loss += loss.item()
         self.running_loss += loss.item()
 
-        if self.debug_mode >= 2:
+        if params.debug_mode >= 2:
             print("loss, old_q_val, new_q_val", loss.item(), old_q_value.item(), new_q_value.item())
 
-        if self.optimizer_type == 1:
+        if params.optimizer_algo == 1:
             # Gradient descent
 
             # Zero the gradients before running the backward pass.
@@ -704,7 +662,7 @@ class RP_RL_agent():
             with torch.no_grad():
                 for param in self.model.parameters():
                     param -= learning_rate * param.grad
-        elif self.optimizer_type == 2:
+        elif params.optimizer_algo == 2:
             # Adam
 
             # Before the backward pass, use the optimizer object to zero all of the
@@ -729,7 +687,7 @@ class RP_RL_agent():
         print("model saved")
 
 
-    def test_model(self, test_env, num_iterations, true_winners = set()):
+    def test_model(self, test_env):
         self.initialize(test_env)
 
         times_discovered = []
@@ -738,13 +696,9 @@ class RP_RL_agent():
         # Sample using model greedily
         # Test with fixed number of iterations
         with torch.no_grad():
-            for iter in range(num_iterations):
-            # Test till found all winners
-            # while self.known_winners != true_winners:
+            for iter in range(params.num_test_iterations):
                 self.reset_environment()
                 self.K = frozenset(self.known_winners)
-
-                # print(self.known_winners, true_winners)
 
                 num_iters_to_find_all_winners += 1
 
@@ -777,13 +731,6 @@ class RP_RL_agent():
                 for c in new_winners:
                     times_discovered.append(iter)
 
-        # print("done:", num_iters_to_find_all_winners)
-        # print("time to make move", time_to_make_move)
-        # print("time for actions", time_for_actions)
-        # print("time for legal actions", time_for_legal_actions)
-        # print("time for rest", time_for_reset)
-        # print("time for state str", self.time_for_state_str)
-
         return self.known_winners, times_discovered, num_iters_to_find_all_winners
 
 
@@ -797,7 +744,7 @@ class RP_RL_agent():
         # Sample using model greedily
         with torch.no_grad():
             # Test till found all winners
-            while self.known_winners != true_winners and num_iters_to_find_all_winners <= self.cutoff_testing_iterations:
+            while self.known_winners != true_winners and num_iters_to_find_all_winners <= params.cutoff_testing_iterations:
                 if not self.known_winners < true_winners:
                     print(self.known_winners, true_winners)
                 assert self.known_winners < true_winners
@@ -822,7 +769,7 @@ class RP_RL_agent():
                     q_vals_blah = []
                     for e in legal_actions:
                         q_vals_blah.append(self.get_Q_val(e).item())
-                        q_vals.append(exp(self.get_Q_val(e).item() / self.tau_for_testing))
+                        q_vals.append(exp(self.get_Q_val(e).item() / params.tau_for_testing))
                     q_sum = sum(q_vals)
                     probs = []
                     for v in q_vals:
@@ -841,9 +788,6 @@ class RP_RL_agent():
                     times_discovered[c] = num_iters_to_find_all_winners
 
         return self.known_winners, times_discovered, num_iters_to_find_all_winners
-
-
-
 
 
     def load_model(self, checkpoint_filename):

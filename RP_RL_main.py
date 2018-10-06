@@ -34,6 +34,8 @@ from RP_RL_agent import RP_RL_agent
 from RL_base_v2 import RL_base_v2
 from RP_RL_agent_v2 import RP_RL_agent_v2
 
+# Always call whatever parameter file you're using "params.py"
+import params as params
 
 def read_profile(inputfile):
     inf = open(inputfile, 'r')
@@ -81,7 +83,7 @@ def test_model_find_all_winners(test_output_file, agent, test_filenames, true_wi
         test_profile = read_profile(test_inputfile)
 
         start = time.perf_counter()
-        if f_use_v2:
+        if params.f_use_v2:
             rp_results = MechanismRankedPairs_v2().outer_loop_lp(test_profile, agent.model)
         else:
             rp_results = MechanismRankedPairs().outer_loop_lp(test_profile, agent.model)
@@ -121,7 +123,7 @@ def test_model(test_output_file, agent, test_filenames, true_winners, model_id, 
     num_total_iterations = 0
     j = 0
 
-    if f_use_testing_v2:
+    if params.f_use_testing_v2:
         print("Starting test v2")
     else:
         print("Starting test")
@@ -130,33 +132,24 @@ def test_model(test_output_file, agent, test_filenames, true_winners, model_id, 
 
     start = time.perf_counter()
 
-    max_num_winners = 0
-
     test_output_file.write("***************************************\n")
 
     for test_inputfile in test_filenames:
         test_profile = read_profile(test_inputfile)
 
-        # print("Testing", test_inputfile)
-
-        if f_use_testing_v2:
-            winners = set(true_winners[j])
-        else:
-            winners = set()
-
         start_file = time.perf_counter()
 
-        if f_use_testing_v2:
+        winners = set(true_winners[j])
+
+        if params.f_use_testing_v2:
             test_PUT_winners, times_discovered, num_iters_to_find_all_winners = agent.test_model_v2(test_profile, winners)
         else:
-            test_PUT_winners, times_discovered, num_iters_to_find_all_winners = agent.test_model(test_profile, num_test_iterations, winners)
+            test_PUT_winners, times_discovered, num_iters_to_find_all_winners = agent.test_model(test_profile)
 
         test_time = time.perf_counter() - start_file
         num_found_test += len(test_PUT_winners)
         num_total_iterations += num_iters_to_find_all_winners
 
-        # print('Took', time.perf_counter() - start_file)
-        # print(test_inputfile, test_PUT_winners, winners)
         missed_winners = winners - test_PUT_winners
 
         output_str = str(test_inputfile) + '\t' + str(list(test_PUT_winners)) + '\t' + str(len(test_PUT_winners)) + '\t' + str(missed_winners) + '\t' + str(len(missed_winners)) + '\t' + str(num_iters_to_find_all_winners) + '\t' + str(times_discovered) + '\t' + str(test_time)
@@ -164,47 +157,11 @@ def test_model(test_output_file, agent, test_filenames, true_winners, model_id, 
         print(j, output_str)
         test_output_file.write(output_str + '\n')
         test_output_file.flush()
-        max_num_winners = max(max_num_winners, len(test_PUT_winners))
         j += 1
 
     print("Test found", num_found_test, "in", num_total_iterations, "iterations, took", time.perf_counter() - start)
-    # print("max num winners", max_num_winners)
     test_output_file.write("END" + "\t" + str(i) + "\t" + str(num_found_test) + "\t" + str(num_total_iterations) + "\n")
     test_output_file.flush()
-
-
-# After how many profiles to test the model
-test_every = 3500
-
-# Whether or not to test before any training
-test_at_start = 1
-
-# note: can't use winners if shuffle
-shuffle_training_data = 0
-
-# Number of iterations to use when testing
-# Doesn't matter if using test_till_find_all_winners of testing_v2
-num_test_iterations = 10
-
-# Whether to initialize model from default values (for comparison purposes)
-f_start_from_default = 1
-
-f_experience_replay = 0
-
-f_train_till_find_all_winners = 0
-
-# Uses PUT_RP_using_model
-f_test_till_find_all_winners = 0
-
-# v2 has network return values for all edges
-f_use_v2 = 0
-
-# testing v2 tests number of samples to find all winners
-f_use_testing_v2 = 1
-
-# Path to default model (used only if f_start_from_default)
-# default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\data\\\\m10n10-100k\\default_agent_7_features.pth.tar"
-default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\10-3\\results_RP_RL_main161490381_model.pth.tar"
 
 
 if __name__ == '__main__':
@@ -216,12 +173,6 @@ if __name__ == '__main__':
     start_everything = time.perf_counter()
 
     os.chdir(rpconfig.path)
-
-    # Read the filenames
-    # y1_filenames = rpconfig.filename
-    # inf1 = open(y1_filenames, 'r')
-    # prediction, filenames = read_Y_prediction(inf1)
-    # inf1.close()
 
     # 14k m10n10
     filenames_file = open(rpconfig.filename_profiles, 'r')
@@ -250,40 +201,38 @@ if __name__ == '__main__':
 
     output_filename = "results_" + os.path.basename(__file__) + str(model_id)
     output_filename = output_filename.replace('.py','')
-    weight_filename = output_filename + "_weights.txt"
     loss_filename = output_filename + "_loss.txt"
     test_output_filename = output_filename + "_test_output.txt"
     parameters_output_filename = output_filename + "_parameters.txt"
     output_filename += '.txt'
     output_file = open(output_filename, "w+")
-    weight_file = open(weight_filename, "w+")
     test_output_file = open(test_output_filename, "w+")
     parameters_file = open(parameters_output_filename, "w+")
     loss_file = open(loss_filename, "w+")
 
     # Create base
-    if f_use_v2:
-        base = RL_base_v2(len(train_filenames))
+    if params.f_use_v2:
+        if params.f_experience_replay:
+            print("Experience replay not implemented for v2")
+            sys.exit(0)
+        else:
+            base = RL_base_v2(len(train_filenames))
     else:
-        if f_experience_replay:
+        if params.f_experience_replay:
             base = RL_base_experience_replay(len(train_filenames))
         else:
             base = RL_base(len(train_filenames))
 
     # Create agent
-    if f_use_v2:
+    if params.f_use_v2:
         agent = RP_RL_agent_v2(base.learning_rate, loss_file)
     else:
         agent = RP_RL_agent(base.learning_rate, loss_file)
 
-    if f_start_from_default:
-        agent.load_model(default_model_path)
+    if params.f_start_from_default:
+        agent.load_model(params.default_model_path)
 
-    num_profiles = 0
     total_time = 0
-
-    total_winners_found = 0
-
     num_times_tested = 0
 
     # Counter variable
@@ -296,66 +245,7 @@ if __name__ == '__main__':
     print(header)
     output_file.write(header+'\n')
 
-    # Print parameters
-    parameters_file.write("Data Path\t" + rpconfig.path + '\n')
-    parameters_file.write("Num Training Data\t" + str(len(train_filenames)) + '\n')
-    parameters_file.write("Num Testing Data\t" + str(len(test_filenames)) + '\n')
-    parameters_file.write("Train from...to\t" + train_filenames[0] + "\t" + train_filenames[-1] + '\n')
-    parameters_file.write("Test from...to\t" + test_filenames[0] + "\t" + test_filenames[-1] + '\n')
-    parameters_file.write("Training Data Shuffled\t" + str(shuffle_training_data) + '\n')
-    parameters_file.write("Learning Rate\t" + str(base.learning_rate) + '\n')
-    parameters_file.write("Learning Rate Decay\t" + str(base.f_learning_rate_decay) + '\n')
-    if base.f_learning_rate_decay == 1:
-        parameters_file.write("Learning Rate Decay Start\t" + str(base.learning_rate_start) + '\n')
-        parameters_file.write("Learning Rate Decay End\t" + str(base.learning_rate_end) + '\n')
-        parameters_file.write("Learning Rate Decay Rate\t" + str(base.learning_rate_decay) + '\n')
-    parameters_file.write("Discount Factor\t" + str(base.discount_factor) + '\n')
-    parameters_file.write("Exploration Rate\t" + str(base.exploration_rate) + '\n')
-    parameters_file.write("Exploration Rate Decay\t" + str(base.f_exploration_rate_decay) + '\n')
-    parameters_file.write("Exploration Type\t" + str(base.exploration_type) + '\n')
-    if base.f_exploration_rate_decay:
-        parameters_file.write("Exploration Rate Decay Start\t" + str(base.exploration_rate_start) + '\n')
-        parameters_file.write("Exploration Rate Decay End\t" + str(base.exploration_rate_end) + '\n')
-        parameters_file.write("Exploration Rate Decay Rate\t" + str(base.exploration_rate_decay) + '\n')
-    parameters_file.write("Num Iterations per Profile\t" + str(base.num_iterations) + '\n')
-    if base.exploration_type == 2:
-        parameters_file.write("Tau Start\t" + str(base.tau_start) + '\n')
-        parameters_file.write("Tau End\t" + str(base.tau_end) + '\n')
-        parameters_file.write("Tau Decay\t" + str(base.tau_decay) + '\n')
-    parameters_file.write("Agent D_in\t" + str(agent.D_in) + '\n')
-    parameters_file.write("Agent H1\t" + str(agent.H1) + '\n')
-    parameters_file.write("Agent H2\t" + str(agent.H2) + '\n')
-    parameters_file.write("Agent D_out\t" + str(agent.D_out) + '\n')
-    parameters_file.write("Num Polynomial Features\t" + str(agent.num_polynomial) + '\n')
-    parameters_file.write("Use Visited Set\t" + str(agent.use_visited) + '\n')
-    parameters_file.write("Use Cycles\t" + str(agent.use_cycles) + '\n')
-    parameters_file.write("Agent Model\t" + str(agent.model) + '\n')
-    parameters_file.write("Agent Loss Function\t" + str(agent.loss_fn) + '\n')
-    parameters_file.write("Agent Optimizer Type\t" + str(agent.optimizer_type) + '\n')
-    if f_start_from_default:
-        parameters_file.write("Default Model File\t" + default_model_path + '\n')
-    else:
-        parameters_file.write("Default Model File\tN/A\n")
-    parameters_file.write("Experience Replay\t" + str(f_experience_replay) + '\n')
-    if f_experience_replay:
-        parameters_file.write("Experience Replay Buffer Size\t" + str(base.buffer_size) + '\n')
-        parameters_file.write("Experience Replay Sample Factor\t" + str(base.unusual_sample_factor) + '\n')
-        parameters_file.write("Experience Replay Batch Size\t" + str(base.batch_size) + '\n')
-        parameters_file.write("Experience Replay Train Every\t" + str(base.train_every_iterations) + '\n')
-    parameters_file.write("Update Target Network Every\t" + str(base.update_target_network_every) + '\n')
-    parameters_file.write("Num Test Iterations\t" + str(num_test_iterations) + '\n')
-    parameters_file.write("Train Till Find All Winners\t" + str(f_train_till_find_all_winners) + '\n')
-    parameters_file.write("Test Till Find All Winners\t" + str(f_test_till_find_all_winners) + '\n')
-    parameters_file.write("Use V2\t" + str(f_use_v2) + '\n')
-    parameters_file.write("Shape Reward\t" + str(agent.f_shape_reward) + '\n')
-    parameters_file.write("Use Testing V2\t" + str(f_use_testing_v2) + '\n')
-    if f_use_testing_v2:
-        parameters_file.write("Tau for Testing\t" + str(agent.tau_for_testing) + '\n')
-
-    parameters_file.write("Date\t" + str(datetime.datetime.now()) + '\n')
-    parameters_file.flush()
-
-    if shuffle_training_data:
+    if params.shuffle_training_data:
         random.shuffle(train_filenames)
 
     # Read true winners
@@ -376,17 +266,30 @@ if __name__ == '__main__':
     true_winners_test = true_winners[10000:11000]
     # true_winners_test = [[8, 1, 3, 6]]
 
-    if not f_test_till_find_all_winners:
+    # Print test output file heading
+    if not params.f_test_using_PUT_RP:
         test_header = 'Profile\tPUT-Winners\tNum Winners\tMissed Winners\tNum Missed Winners\tNum Iters\tIter Discoverd\tRuntime'
     else:
         test_header = "inputfile\tPUT-winners\tnum nodes\tdiscovery states\tmax discovery state\tdiscovery times\tmax discovery times\tstop condition hits\tsum stop cond hits\tnum hashes\tnum initial bridges\tnum redundant edges\ttime for cycles\truntime"
     test_output_file.write(test_header + '\n')
 
+    # Print parameters
+    params.print_params(parameters_file)
+    parameters_file.write("Data Path\t" + rpconfig.path + '\n')
+    parameters_file.write("Num Training Data\t" + str(len(train_filenames)) + '\n')
+    parameters_file.write("Num Testing Data\t" + str(len(test_filenames)) + '\n')
+    parameters_file.write("Train from...to\t" + train_filenames[0] + "\t" + train_filenames[-1] + '\n')
+    parameters_file.write("Test from...to\t" + test_filenames[0] + "\t" + test_filenames[-1] + '\n')
+    parameters_file.write("Agent Model\t" + str(agent.model) + '\n')
+    parameters_file.write("Agent Loss Function\t" + str(agent.loss_fn) + '\n')
+    parameters_file.write("Date\t" + str(datetime.datetime.now()) + '\n')
+    parameters_file.close()
+
     for inputfile in train_filenames:
-        if i % test_every == 0 and (test_at_start or i != 0):
+        if i % params.test_every == 0 and (params.test_at_start or i != 0):
             print("Output:", output_filename)
 
-            if f_test_till_find_all_winners:
+            if params.f_test_using_PUT_RP:
                 test_model_find_all_winners(test_output_file, agent, test_filenames, true_winners_test, model_id, num_times_tested)
             else:
                 test_model(test_output_file, agent, test_filenames, true_winners_test, model_id, num_times_tested)
@@ -400,8 +303,8 @@ if __name__ == '__main__':
 
         # Run the profile
         start = time.perf_counter()
-        if f_train_till_find_all_winners:
-            rp_results, iter_to_find_all_winners = base.reinforcement_loop(agent, profile, f_train_till_find_all_winners, set(true_winners_train[i]))
+        if params.f_train_till_find_all_winners:
+            rp_results, iter_to_find_all_winners = base.reinforcement_loop(agent, profile, True, set(true_winners_train[i]))
         else:
             rp_results, iter_to_find_all_winners = base.reinforcement_loop(agent, profile)
         end = time.perf_counter()
@@ -410,7 +313,6 @@ if __name__ == '__main__':
         stats = agent.stats
 
         total_time += (end - start)
-        num_profiles += 1
 
         if stats.num_nodes == 0:
             avg_loss_per_node = 0
@@ -425,24 +327,21 @@ if __name__ == '__main__':
         output_file.write(result_text + '\n')
         output_file.flush()
 
-        # agent.print_model(weight_file, f_print_to_console=False)
-
         i += 1
 
     # Final test
     print("Output:", output_filename)
-    if f_test_till_find_all_winners:
+    if params.f_test_using_PUT_RP:
         test_model_find_all_winners(test_output_file, agent, test_filenames, true_winners_test, model_id, num_times_tested)
     else:
         test_model(test_output_file, agent, test_filenames, true_winners, model_id, num_times_tested)
 
     print("Total Time to Train: %f" % total_time)
-    print("Average Time: %f" % (total_time / num_profiles))
+    print("Average Time: %f" % (total_time / len(train_filenames)))
 
     print("Total Runtime: %f" % (time.perf_counter() - start_everything))
 
     # Close files
     output_file.close()
-    weight_file.close()
     test_output_file.close()
-    parameters_file.close()
+    loss_file.close()
