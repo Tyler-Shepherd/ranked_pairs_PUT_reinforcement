@@ -34,6 +34,8 @@ from RP_RL_agent import RP_RL_agent
 from RL_base_v2 import RL_base_v2
 from RP_RL_agent_v2 import RP_RL_agent_v2
 
+import RP_utils
+
 # Always call whatever parameter file you're using "params.py"
 import params as params
 
@@ -71,8 +73,12 @@ def read_Y_prediction(inputfile):
 
     return Y, filenames
 
-def test_model_find_all_winners(test_output_file, agent, test_filenames, true_winners, model_id, num_times_tested):
-    agent.save_model(str(model_id) + "_test_" + str(num_times_tested))
+'''
+Runs PUT_RP algorithm to do full search of each profile, guaranteeing to find all PUT-winners
+Uses agent model to evaluate local priority
+'''
+def test_model_using_PUT_RP(test_output_file, agent, test_filenames, model_id, num_times_tested):
+    RP_utils.save_model(agent.model, "RL_test_" + str(num_times_tested), model_id)
 
     print("Starting PUT_RP_using_model test")
     test_output_file.write('***********************************\n')
@@ -107,32 +113,30 @@ def test_model_find_all_winners(test_output_file, agent, test_filenames, true_wi
         result_text = "%s\t%r\t%d\t%r\t%d\t%r\t%f\t%r\t%d\t%d\t%d\t%d\t%f\t%f" % (test_inputfile, PUT_winners, stats.num_nodes, stats.discovery_states,
                                                   max_discovery_state, stats.discovery_times, max_discovery_time, stats.stop_condition_hits, num_stop_condition_hits, stats.num_hashes, stats.num_initial_bridges, stats.num_redundant_edges, stats.time_for_cycles, (end - start))
 
-        # print(result_text)
+        print(result_text)
         test_output_file.write(result_text + '\n')
         test_output_file.flush()
 
     print("Time to test:", time.perf_counter() - start_test)
 
-
-
+'''
+Tests model
+'''
 def test_model(test_output_file, agent, test_filenames, true_winners, model_id, num_times_tested):
     # Test the agents learned model
-    agent.save_model(str(model_id) + "_test_" + str(num_times_tested))
+    RP_utils.save_model(agent.model, "RL_test_" + str(num_times_tested), model_id)
 
     num_found_test = 0
     num_total_iterations = 0
     j = 0
 
     if params.f_use_testing_v2:
-        print("Starting test v2")
+        print("Starting test v2", num_times_tested)
     else:
-        print("Starting test")
-
-    print(test_header)
-
-    start = time.perf_counter()
-
+        print("Starting test", num_times_tested)
     test_output_file.write("***************************************\n")
+
+    start_test = time.perf_counter()
 
     for test_inputfile in test_filenames:
         test_profile = read_profile(test_inputfile)
@@ -159,189 +163,178 @@ def test_model(test_output_file, agent, test_filenames, true_winners, model_id, 
         test_output_file.flush()
         j += 1
 
-    print("Test found", num_found_test, "in", num_total_iterations, "iterations, took", time.perf_counter() - start)
-    test_output_file.write("END" + "\t" + str(i) + "\t" + str(num_found_test) + "\t" + str(num_total_iterations) + "\n")
+    print("Test found", num_found_test, "in", num_total_iterations, "iterations, took", time.perf_counter() - start_test)
+    test_output_file.write("END" + "\t" + str(num_times_tested) + "\t" + str(num_found_test) + "\t" + str(num_total_iterations) + "\n")
     test_output_file.flush()
 
 
-if __name__ == '__main__':
+class RP_RL():
+    def RP_RL(self, model, model_id, parameters_file):
+        start_RL = time.perf_counter()
+        os.chdir(rpconfig.path)
 
-    # Set random seeds
-    random.seed(time.time())
-    torch.manual_seed(time.time())
+        # 14k m10n10
+        filenames_file = open(rpconfig.filename_profiles, 'r')
+        filenames = [i.strip('\n') for i in filenames_file]
+        train_filenames = filenames[:10000] + filenames[11000:]
+        test_filenames = filenames[10000:11000]  # the 1000 profiles we used in the paper
 
-    start_everything = time.perf_counter()
+        # m10n10
+        # filenames = sorted(glob.glob('M10N10-*.csv'))
+        # train_filenames = filenames[0:80000]
+        # test_filenames = filenames[80000:100000]
 
-    os.chdir(rpconfig.path)
+        # debugging
+        # train_filenames = ['meh']
+        # test_filenames = ['4circle.soc']
 
-    # 14k m10n10
-    filenames_file = open(rpconfig.filename_profiles, 'r')
-    filenames = [i.strip('\n') for i in filenames_file]
-    train_filenames = filenames[:10000] + filenames[11000:]
-    test_filenames = filenames[10000:11000]   # the 1000 profiles we used in the paper
-    # test_filenames = filenames[10000:10100]
-    # test_filenames = ["M10N10-16804.csv"]
+        # m50n50
+        # filenames = sorted(glob.glob('M50N50-*.csv'))
+        # train_filenames = filenames[0:1]
+        # test_filenames = filenames[0:100]
 
-    # m10n10
-    # filenames = sorted(glob.glob('M10N10-*.csv'))
-    # train_filenames = filenames[0:80000]
-    # test_filenames = filenames[80000:100000]
+        # Open files for output
+        output_filename = str(model_id) + "_RL_training_results.txt"
+        loss_filename = str(model_id) + "_RL_loss.txt"
+        test_output_filename = str(model_id) + "_RL_test_results.txt"
+        output_file = open(rpconfig.results_path + output_filename, "w+")
+        test_output_file = open(rpconfig.results_path + test_output_filename, "w+")
+        loss_file = open(rpconfig.results_path + loss_filename, "w+")
 
-    # debugging
-    # train_filenames = ['meh']
-    # test_filenames = ['4circle.soc']
-
-    # m50n50
-    # filenames = sorted(glob.glob('M50N50-*.csv'))
-    # train_filenames = filenames[0:1]
-    # test_filenames = filenames[0:100]
-
-    # Open files for output
-    model_id = random.randint(0,1000000000)
-
-    output_filename = "results_" + os.path.basename(__file__) + str(model_id)
-    output_filename = output_filename.replace('.py','')
-    loss_filename = output_filename + "_loss.txt"
-    test_output_filename = output_filename + "_test_output.txt"
-    parameters_output_filename = output_filename + "_parameters.txt"
-    output_filename += '.txt'
-    output_file = open(output_filename, "w+")
-    test_output_file = open(test_output_filename, "w+")
-    parameters_file = open(parameters_output_filename, "w+")
-    loss_file = open(loss_filename, "w+")
-
-    # Create base
-    if params.f_use_v2:
-        if params.f_experience_replay:
-            print("Experience replay not implemented for v2")
-            sys.exit(0)
-        else:
-            base = RL_base_v2(len(train_filenames))
-    else:
-        if params.f_experience_replay:
-            base = RL_base_experience_replay(len(train_filenames))
-        else:
-            base = RL_base(len(train_filenames))
-
-    # Create agent
-    if params.f_use_v2:
-        agent = RP_RL_agent_v2(base.learning_rate, loss_file)
-    else:
-        agent = RP_RL_agent(base.learning_rate, loss_file)
-
-    if params.f_start_from_default:
-        agent.load_model(params.default_model_path)
-
-    total_time = 0
-    num_times_tested = 0
-
-    # Counter variable
-    i = 0
-
-    print(output_filename)
-
-    # Print header
-    header = "Inputfile\tPUT-winners\tExploration Rate\tLearning Rate\tTau\tStop Conditions\tNum Nodes\tNum Winners Found\tLoss\tAvg Loss\tIs Acyclic\tIter To Find All Winners\tRuntime"
-    print(header)
-    output_file.write(header+'\n')
-
-    if params.shuffle_training_data:
-        random.shuffle(train_filenames)
-
-    # Read true winners
-    os.chdir(rpconfig.winners_path)
-    true_winners = []
-    winners_file = open("./winners_14k.txt", 'r')
-    for line in winners_file:
-        winners = []
-        for c in line:
-            if c == '[' or c == ',' or c == ' ' or c ==']' or c =='\n':
-                continue
-            winners.append(int(c))
-        true_winners.append(winners)
-    os.chdir(rpconfig.path)
-
-    # split true_winners into train and test
-    true_winners_train = true_winners[:10000] + true_winners[11000:]
-    true_winners_test = true_winners[10000:11000]
-    # true_winners_test = [[8, 1, 3, 6]]
-
-    # Print test output file heading
-    if not params.f_test_using_PUT_RP:
-        test_header = 'Profile\tPUT-Winners\tNum Winners\tMissed Winners\tNum Missed Winners\tNum Iters\tIter Discoverd\tRuntime'
-    else:
-        test_header = "inputfile\tPUT-winners\tnum nodes\tdiscovery states\tmax discovery state\tdiscovery times\tmax discovery times\tstop condition hits\tsum stop cond hits\tnum hashes\tnum initial bridges\tnum redundant edges\ttime for cycles\truntime"
-    test_output_file.write(test_header + '\n')
-
-    # Print parameters
-    params.print_params(parameters_file)
-    parameters_file.write("Data Path\t" + rpconfig.path + '\n')
-    parameters_file.write("Num Training Data\t" + str(len(train_filenames)) + '\n')
-    parameters_file.write("Num Testing Data\t" + str(len(test_filenames)) + '\n')
-    parameters_file.write("Train from...to\t" + train_filenames[0] + "\t" + train_filenames[-1] + '\n')
-    parameters_file.write("Test from...to\t" + test_filenames[0] + "\t" + test_filenames[-1] + '\n')
-    parameters_file.write("Agent Model\t" + str(agent.model) + '\n')
-    parameters_file.write("Agent Loss Function\t" + str(agent.loss_fn) + '\n')
-    parameters_file.write("Date\t" + str(datetime.datetime.now()) + '\n')
-    parameters_file.close()
-
-    for inputfile in train_filenames:
-        if i % params.test_every == 0 and (params.test_at_start or i != 0):
-            print("Output:", output_filename)
-
-            if params.f_test_using_PUT_RP:
-                test_model_find_all_winners(test_output_file, agent, test_filenames, true_winners_test, model_id, num_times_tested)
+        # Create RL base
+        if params.f_use_v2:
+            if params.f_experience_replay:
+                print("Experience replay not implemented for v2")
+                sys.exit(0)
             else:
-                test_model(test_output_file, agent, test_filenames, true_winners_test, model_id, num_times_tested)
-
-            num_times_tested += 1
-
-        if i % 500 == 0:
-            agent.save_model(str(model_id) + "_" + str(i))
-
-        profile = read_profile(inputfile)
-
-        # Run the profile
-        start = time.perf_counter()
-        if params.f_train_till_find_all_winners:
-            rp_results, iter_to_find_all_winners = base.reinforcement_loop(agent, profile, True, set(true_winners_train[i]))
+                base = RL_base_v2(len(train_filenames))
         else:
-            rp_results, iter_to_find_all_winners = base.reinforcement_loop(agent, profile)
-        end = time.perf_counter()
+            if params.f_experience_replay:
+                base = RL_base_experience_replay(len(train_filenames))
+            else:
+                base = RL_base(len(train_filenames))
 
-        PUT_winners = sorted(rp_results.known_winners)
-        stats = agent.stats
-
-        total_time += (end - start)
-
-        if stats.num_nodes == 0:
-            avg_loss_per_node = 0
+        # Create agent
+        if params.f_use_v2:
+            agent = RP_RL_agent_v2(model, base.learning_rate, loss_file)
         else:
-            avg_loss_per_node = stats.running_loss / stats.num_nodes
+            agent = RP_RL_agent(model, base.learning_rate, loss_file)
 
-        is_acyclic = str(nx.is_directed_acyclic_graph(agent.E_0))
+        # Counter variable
+        i = 0
 
-        result_text = "%s\t%r\t%f\t%f\t%f\t%r\t%d\t%d\t%f\t%f\t%s\t%d\t%f" % \
-                      (inputfile, PUT_winners, base.exploration_rate, base.learning_rate, base.tau, stats.stop_condition_hits, stats.num_nodes, len(PUT_winners), stats.running_loss, avg_loss_per_node, is_acyclic, iter_to_find_all_winners, end - start)
-        print(i, result_text)
-        output_file.write(result_text + '\n')
+        total_time = 0
+        num_times_tested = 0
+
+        print("***********************************************")
+        print("Starting Reinforcement Learning", model_id)
+
+        # Print header
+        header = "Inputfile\tPUT-winners\tExploration Rate\tLearning Rate\tTau\tStop Conditions\tNum Nodes\tNum Winners Found\tLoss\tAvg Loss\tIs Acyclic\tIter To Find Winner\tIters To Find All Winners\tRuntime"
+        print(header)
+        output_file.write(header + '\n')
         output_file.flush()
 
-        i += 1
+        loss_file.write('Num Nodes' + '\t' + 'Loss Per Node' + '\n')
+        loss_file.flush()
 
-    # Final test
-    print("Output:", output_filename)
-    if params.f_test_using_PUT_RP:
-        test_model_find_all_winners(test_output_file, agent, test_filenames, true_winners_test, model_id, num_times_tested)
-    else:
-        test_model(test_output_file, agent, test_filenames, true_winners, model_id, num_times_tested)
+        # Read true winners
+        os.chdir(rpconfig.winners_path)
+        true_winners = []
+        winners_file = open("./winners_14k.txt", 'r')
+        for line in winners_file:
+            winners = []
+            for c in line:
+                if c == '[' or c == ',' or c == ' ' or c == ']' or c == '\n':
+                    continue
+                winners.append(int(c))
+            true_winners.append(winners)
+        os.chdir(rpconfig.path)
 
-    print("Total Time to Train: %f" % total_time)
-    print("Average Time: %f" % (total_time / len(train_filenames)))
+        # Split true_winners into train and test
+        true_winners_train = true_winners[:10000] + true_winners[11000:]
+        true_winners_test = true_winners[10000:11000]
 
-    print("Total Runtime: %f" % (time.perf_counter() - start_everything))
+        # Shuffle training data
+        if params.shuffle_training_data:
+            combined = list(zip(train_filenames, true_winners_train))
+            random.shuffle(combined)
+            train_filenames, true_winners_train = zip(*combined)
 
-    # Close files
-    output_file.close()
-    test_output_file.close()
-    loss_file.close()
+        # Print test output file heading
+        if not params.f_test_using_PUT_RP:
+            test_header = 'Profile\tPUT-Winners\tNum Winners\tMissed Winners\tNum Missed Winners\tNum Iters\tIter Discoverd\tRuntime'
+        else:
+            test_header = "inputfile\tPUT-winners\tnum nodes\tdiscovery states\tmax discovery state\tdiscovery times\tmax discovery times\tstop condition hits\tsum stop cond hits\tnum hashes\tnum initial bridges\tnum redundant edges\ttime for cycles\truntime"
+        test_output_file.write(test_header + '\n')
+
+        # Print additional parameters
+        parameters_file.write("RL Data Path\t" + rpconfig.path + '\n')
+        parameters_file.write("RL Num Training Data\t" + str(len(train_filenames)) + '\n')
+        parameters_file.write("RL Num Testing Data\t" + str(len(test_filenames)) + '\n')
+        parameters_file.write("RL Train From...To\t" + train_filenames[0] + "\t" + train_filenames[-1] + '\n')
+        parameters_file.write("RL Test From...To\t" + test_filenames[0] + "\t" + test_filenames[-1] + '\n')
+        parameters_file.write("RL Loss Function\t" + str(agent.loss_fn) + '\n')
+        parameters_file.flush()
+
+        for inputfile in train_filenames:
+            # Test model
+            if i % params.test_every == 0 and (params.test_at_start or i != 0):
+                if params.f_test_using_PUT_RP:
+                    test_model_using_PUT_RP(test_output_file, agent, test_filenames, model_id, num_times_tested)
+                else:
+                    test_model(test_output_file, agent, test_filenames, true_winners_test, model_id, num_times_tested)
+
+                num_times_tested += 1
+
+            if i % 500 == 0:
+                RP_utils.save_model(model, "RL_" + str(i), model_id)
+
+            profile = read_profile(inputfile)
+
+            # Run the profile
+            start = time.perf_counter()
+            if params.f_train_till_find_all_winners:
+                rp_results, iter_to_find_winner, iter_to_find_all_winners = base.reinforcement_loop(agent, profile, True, set(true_winners_train[i]))
+            else:
+                rp_results, iter_to_find_winner, iter_to_find_all_winners = base.reinforcement_loop(agent, profile)
+            end = time.perf_counter()
+
+            # Evaluate and output results
+            PUT_winners = sorted(rp_results.known_winners)
+            stats = agent.stats
+
+            total_time += (end - start)
+
+            if stats.num_nodes == 0:
+                avg_loss_per_node = 0
+            else:
+                avg_loss_per_node = stats.running_loss / stats.num_nodes
+
+            is_acyclic = str(nx.is_directed_acyclic_graph(agent.E_0))
+
+            result_text = "%s\t%r\t%f\t%f\t%f\t%r\t%d\t%d\t%f\t%f\t%s\t%r\t%d\t%f" % \
+                          (inputfile, PUT_winners, base.exploration_rate, base.learning_rate, base.tau,
+                           stats.stop_condition_hits, stats.num_nodes, len(PUT_winners), stats.running_loss,
+                           avg_loss_per_node, is_acyclic, iter_to_find_winner, iter_to_find_all_winners, end - start)
+            print(i, result_text)
+            output_file.write(result_text + '\n')
+            output_file.flush()
+
+            i += 1
+
+        # Final test
+        if params.f_test_using_PUT_RP:
+            test_model_using_PUT_RP(test_output_file, agent, test_filenames, true_winners_test, model_id, num_times_tested)
+        else:
+            test_model(test_output_file, agent, test_filenames, true_winners, model_id, num_times_tested)
+
+        print("Total Time to Train: %f" % total_time)
+        print("Average Time Per Profile: %f" % (total_time / len(train_filenames)))
+
+        print("Total RL Runtime: %f" % (time.perf_counter() - start_RL))
+
+        # Close files
+        output_file.close()
+        test_output_file.close()
+        loss_file.close()

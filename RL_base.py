@@ -35,10 +35,15 @@ class RL_base():
     '''
     Performs one iteration of learning
     An "iteration" is one full run of RP from initial state to goal state
+    If full_K is 1 then sets agents K to be known_winners (used when training to find all winners)
+    iter_to_find_winner is, if defined, a dict of winner to number of iterations needed to discover that winner
     '''
-    def learning_iteration(self, agent):
+    def learning_iteration(self, agent, full_K = 0, iter_to_find_winner = None):
         # Reset environment
-        agent.reset_environment()
+        agent.reset_environment(iter_to_find_winner = iter_to_find_winner)
+
+        if full_K:
+            agent.K = frozenset(agent.known_winners)
 
         # While not reached goal state
         while agent.at_goal_state()[0] == -1:
@@ -127,7 +132,6 @@ class RL_base():
     '''
     def reinforcement_loop(self, agent, env0, f_train_until_found_all_winners = 0, true_winners = set()):
         # Initialize
-        #stats = agent.Stats()
         agent.initialize(env0)
 
         iter_to_find_all_winners = 0
@@ -139,7 +143,7 @@ class RL_base():
             while agent.known_winners != true_winners:
                 assert agent.known_winners < true_winners
 
-                self.learning_iteration(agent)
+                self.learning_iteration(agent, full_K=1)
 
                 if iter_to_find_all_winners % params.update_target_network_every == 0:
                     agent.target_model.load_state_dict(agent.model.state_dict())
@@ -151,7 +155,7 @@ class RL_base():
                 prev_winners = agent.known_winners.copy()
 
         for iter in range(params.num_training_iterations):
-            self.learning_iteration(agent)
+            self.learning_iteration(agent, iter_to_find_winner=iter_to_find_winner)
 
             # if params.f_learning_rate_decay == 2:
             #     # from http://www.cs.cmu.edu/afs/andrew/course/15/381-f08/www/lectures/HandoutModelFreeRL.pdf
@@ -167,7 +171,7 @@ class RL_base():
         if params.debug_mode >= 2:
             agent.print_model("")
 
-        return agent, iter_to_find_all_winners
+        return agent, iter_to_find_winner, iter_to_find_all_winners
 
     '''
     Takes action a and updates agent q values 

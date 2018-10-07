@@ -1,8 +1,12 @@
-# Parameters not defined in here:
-# In agent: Model architecture and loss function
-# In main: What training/test data to use
+import datetime
 
-import rpconfig
+# Parameters not defined in here:
+# In RP_RL_agent: Loss function
+# In RP_RL_main: What training/test data to use for RL
+# In main: Model architecture
+
+run_SL = 0
+run_RL = 1
 
 # After how many profiles trained to test the model
 test_every = 3500
@@ -11,15 +15,14 @@ test_every = 3500
 test_at_start = 1
 
 # Whether to shuffle the training data
-# TODO: currently doesn't correspond with winners if shuffled
-shuffle_training_data = 0
+shuffle_training_data = 1
 
 # Number of iterations to use when testing
 # Doesn't matter if using test_till_find_all_winners or testing_v2
 num_test_iterations = 10
 
 # Whether to initialize model from default values (for comparison purposes)
-f_start_from_default = 0
+f_start_from_default = 1
 
 # Path to default model (used only if f_start_from_default)
 default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\10-3\\results_RP_RL_main161490381_model.pth.tar"
@@ -27,7 +30,7 @@ default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pair
 # Whether to use experience replay
 f_experience_replay = 0
 
-f_train_till_find_all_winners = 0
+f_train_till_find_all_winners = 1
 
 # Uses PUT_RP_using_model
 f_test_using_PUT_RP = 0
@@ -82,6 +85,7 @@ n = 10.0
 # What features to include
 num_polynomial = 1
 use_in_out = True # out/in of u,v
+use_total_degree = False
 use_in_out_binary = False # binary out/in of u,v
 use_K = True # u,v in K
 use_voting_rules = False
@@ -93,14 +97,16 @@ use_posmat = False
 use_tier_adjacency_matrix = False
 use_connectivity = False
 
-use_adjacency_matrix = True
-use_K_representation = True
+use_adjacency_matrix = False
+use_K_representation = False
 
 
 # Compute D_in from features used
 D_in = 0
 if use_in_out:
     D_in += num_polynomial * 4
+if use_total_degree:
+    D_in += num_polynomial * 2
 if use_in_out_binary:
     D_in += 4
 if use_K:
@@ -191,6 +197,7 @@ def print_params(parameters_file):
     parameters_file.write("Num Polynomial Features\t" + str(num_polynomial) + '\n')
 
     parameters_file.write("use_in_out\t" + str(use_in_out) + '\n')
+    parameters_file.write("use_total_degree\t" + str(use_total_degree) + '\n')
     parameters_file.write("use_in_out_binary\t" + str(use_in_out_binary) + '\n')
     parameters_file.write("use_K\t" + str(use_K) + '\n')
     parameters_file.write("use_voting_rules\t" + str(use_voting_rules) + '\n')
@@ -225,4 +232,7 @@ def print_params(parameters_file):
     parameters_file.write("Use Testing V2\t" + str(f_use_testing_v2) + '\n')
     if f_use_testing_v2:
         parameters_file.write("Tau for Testing\t" + str(tau_for_testing) + '\n')
+
+    parameters_file.write("Date\t" + str(datetime.datetime.now()) + '\n')
+
     parameters_file.flush()

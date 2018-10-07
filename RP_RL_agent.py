@@ -156,26 +156,14 @@ def avg_node_connectivity(G, I, s):
 
 
 class RP_RL_agent():
-    def __init__(self, learning_rate = 0, loss_output_file = None):
+    def __init__(self, model, learning_rate = 0, loss_output_file = None):
         # Initialize learning model
-        self.model = torch.nn.Sequential(
-            torch.nn.Linear(params.D_in, params.H1),
-            torch.nn.Sigmoid(),
-            torch.nn.Linear(params.H1, params.H2),
-            torch.nn.Sigmoid(),
-            torch.nn.Linear(params.H2, params.D_out)
-        )
+        self.model = model
 
         # target fixed network to use in updating loss for stabilization
         # gets updated to self.model periodically
         # https://pytorch.org/tutorials/intermediate/reinforcement_q_learning.html
-        self.target_model = torch.nn.Sequential(
-            torch.nn.Linear(params.D_in, params.H1),
-            torch.nn.Sigmoid(),
-            torch.nn.Linear(params.H1, params.H2),
-            torch.nn.Sigmoid(),
-            torch.nn.Linear(params.H2, params.D_out)
-        )
+        self.target_model = copy.deepcopy(model)
 
         # self.loss_fn = torch.nn.MSELoss(size_average=False)  # using mean squared error
         self.loss_fn = torch.nn.SmoothL1Loss(size_average=False) # Huber loss
@@ -303,17 +291,24 @@ class RP_RL_agent():
     '''
     Resets G (the current RP graph), E (the graph of unadded edges) and K (the known winners)
     Does not reset the visited set
+    Randomly initializes K from known_winners - if iter_to_find_winner supplied, uses that to determine probability of including each winner
     '''
-    def reset_environment(self):
+    def reset_environment(self, iter_to_find_winner = None):
         self.G = self.G_0.copy()
         self.E = self.E_0.copy()
 
         # Randomly initialize known winners
         self.K = set()
 
-        for a in self.known_winners:
-            if random.random() > 0.5:
-                self.K.add(a)
+        if iter_to_find_winner is not None:
+            max_num_iters = max(i for i in iter_to_find_winner.values())
+            for a in self.known_winners:
+                if random.random() > (1 - iter_to_find_winner[a] / (max_num_iters + 1)):
+                    self.K.add(a)
+        else:
+            for a in self.known_winners:
+                if random.random() > 0.5:
+                    self.K.add(a)
         self.K = frozenset(self.K)
 
         if params.use_visited:
@@ -403,8 +398,9 @@ class RP_RL_agent():
             f.extend(self.polynomialize(self.safe_div(self.G.in_degree(v), self.E_0.in_degree(v)), params.num_polynomial))
 
         # total degree
-        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(u) + self.G.in_degree(u), self.E_0.out_degree(u) + self.E_0.in_degree(u)), params.num_polynomial))
-        # f.extend(self.polynomialize(self.safe_div(self.G.out_degree(v) + self.G.in_degree(v), self.E_0.out_degree(v) + self.E_0.in_degree(v)), params.num_polynomial))
+        if params.use_total_degree:
+            f.extend(self.polynomialize(self.safe_div(self.G.out_degree(u) + self.G.in_degree(u), self.E_0.out_degree(u) + self.E_0.in_degree(u)), params.num_polynomial))
+            f.extend(self.polynomialize(self.safe_div(self.G.out_degree(v) + self.G.in_degree(v), self.E_0.out_degree(v) + self.E_0.in_degree(v)), params.num_polynomial))
 
         # binary "has out/in degree" features
         if params.use_in_out_binary:
@@ -788,13 +784,6 @@ class RP_RL_agent():
                     times_discovered[c] = num_iters_to_find_all_winners
 
         return self.known_winners, times_discovered, num_iters_to_find_all_winners
-
-
-    def load_model(self, checkpoint_filename):
-        checkpoint = torch.load(checkpoint_filename)
-        self.model.load_state_dict(checkpoint)
-        self.target_model.load_state_dict(self.model.state_dict())
-        print("loaded model")
 
     def get_current_state(self):
         return [self.G.copy(), self.E.copy(), self.K.copy()]

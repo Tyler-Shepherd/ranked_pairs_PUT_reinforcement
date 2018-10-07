@@ -23,6 +23,8 @@ import torch
 from torch.autograd import Variable
 from pprint import pprint
 
+import params as params
+
 # Copied from LPwinners_db_5_6
 # Does not use database
 
@@ -264,84 +266,95 @@ class MechanismRankedPairs():
 
         f = []
 
-        num_polynomial = 4
-
         # out/in degree
-        # f.extend(self.polynomialize(self.safe_div(G.out_degree(u), self.E_0.out_degree(u)), num_polynomial))
-        # f.extend(self.polynomialize(self.safe_div(G.in_degree(u), self.E_0.in_degree(u)), num_polynomial))
-        # f.extend(self.polynomialize(self.safe_div(G.out_degree(v), self.E_0.out_degree(v)), num_polynomial))
-        # f.extend(self.polynomialize(self.safe_div(G.in_degree(v), self.E_0.in_degree(v)), num_polynomial))
+        if params.use_in_out:
+            f.extend(self.polynomialize(self.safe_div(G.out_degree(u), self.E_0.out_degree(u)), params.num_polynomial))
+            f.extend(self.polynomialize(self.safe_div(G.in_degree(u), self.E_0.in_degree(u)), params.num_polynomial))
+            f.extend(self.polynomialize(self.safe_div(G.out_degree(v), self.E_0.out_degree(v)), params.num_polynomial))
+            f.extend(self.polynomialize(self.safe_div(G.in_degree(v), self.E_0.in_degree(v)), params.num_polynomial))
 
         # total degree
-        # f.extend(self.polynomialize(self.safe_div(G.out_degree(u) + G.in_degree(u), self.E_0.out_degree(u) + self.E_0.in_degree(u)), num_polynomial))
-        # f.extend(self.polynomialize(self.safe_div(G.out_degree(v) + G.in_degree(v), self.E_0.out_degree(v) + self.E_0.in_degree(v)), num_polynomial))
+        if params.use_total_degree:
+            f.extend(self.polynomialize(self.safe_div(G.out_degree(u) + G.in_degree(u), self.E_0.out_degree(u) + self.E_0.in_degree(u)), params.num_polynomial))
+            f.extend(self.polynomialize(self.safe_div(G.out_degree(v) + G.in_degree(v), self.E_0.out_degree(v) + self.E_0.in_degree(v)), params.num_polynomial))
 
         # binary "has out/in degree" features
-        f.append(2 * int(G.out_degree(u) > 0) - 1)
-        f.append(2 * int(G.in_degree(u) > 0) - 1)
-        f.append(2 * int(G.out_degree(v) > 0) - 1)
-        f.append(2 * int(G.in_degree(v) > 0) - 1)
+        if params.use_in_out_binary:
+            f.append(2 * int(G.out_degree(u) > 0) - 1)
+            f.append(2 * int(G.in_degree(u) > 0) - 1)
+            f.append(2 * int(G.out_degree(v) > 0) - 1)
+            f.append(2 * int(G.in_degree(v) > 0) - 1)
 
         # known winners features
-        f.append(2 * int(u in K) - 1)
-        f.append(2 * int(v in K) - 1)
+        if params.use_K:
+            f.append(2 * int(u in K) - 1)
+            f.append(2 * int(v in K) - 1)
 
-        # if a in self.edge_to_cycle_occurrence:
-        #     f.extend(self.polynomialize(self.safe_div(self.edge_to_cycle_occurrence[a], self.num_cycles), 1))
-        # else:
-        #     f.extend(self.polynomialize(0, 1))
+        if params.use_cycles:
+            if a in self.edge_to_cycle_occurrence:
+                f.extend(self.polynomialize(self.safe_div(self.edge_to_cycle_occurrence[a], self.num_cycles), 1))
+            else:
+                f.extend(self.polynomialize(0, 1))
 
         # voting rules scores
-        f.extend(self.polynomialize(self.plurality_scores[u], num_polynomial))
-        f.extend(self.polynomialize(self.plurality_scores[v], num_polynomial))
-        f.extend(self.polynomialize(self.borda_scores[u], num_polynomial))
-        f.extend(self.polynomialize(self.borda_scores[v], num_polynomial))
-        f.extend(self.polynomialize(self.copeland_scores[u], num_polynomial))
-        f.extend(self.polynomialize(self.copeland_scores[v], num_polynomial))
-        f.extend(self.polynomialize(self.maximin_scores[u], num_polynomial))
-        f.extend(self.polynomialize(self.maximin_scores[v], num_polynomial))
+        if params.use_voting_rules:
+            f.extend(self.polynomialize(self.plurality_scores[u], params.num_polynomial))
+            f.extend(self.polynomialize(self.plurality_scores[v], params.num_polynomial))
+            f.extend(self.polynomialize(self.borda_scores[u], params.num_polynomial))
+            f.extend(self.polynomialize(self.borda_scores[v], params.num_polynomial))
+            f.extend(self.polynomialize(self.copeland_scores[u], params.num_polynomial))
+            f.extend(self.polynomialize(self.copeland_scores[v], params.num_polynomial))
+            f.extend(self.polynomialize(self.maximin_scores[u], params.num_polynomial))
+            f.extend(self.polynomialize(self.maximin_scores[v], params.num_polynomial))
 
-        f.extend(self.vectorized_wmg)
-        f.extend(self.posmat)
+        if params.use_vectorized_wmg:
+            f.extend(self.vectorized_wmg)
+
+        if params.use_posmat:
+            f.extend(self.posmat)
 
         # visited feature (always will be 1 since caching)
-        # f.extend([1])
+        if params.use_visited:
+            f.extend(self.polynomialize(1, params.num_polynomial))
 
         # edge weight
-        f.extend(self.polynomialize(self.E_0[u][v]['weight'] / self.max_edge_weight, num_polynomial))
+        if params.use_edge_weight:
+            f.extend(self.polynomialize(self.E_0[u][v]['weight'] / self.max_edge_weight, params.num_polynomial))
 
         # adjacency matrix if a is added
-        G.add_edge(u,v)
-        adjacency = nx.adjacency_matrix(G, nodelist = I).todense()
-        adjacency = np.multiply(adjacency, self.adjacency_0)
-        adjacency_normalized = np.divide(adjacency, 10) # NOTE: update if not using n10
-        f.extend(adjacency_normalized.flatten().tolist()[0])
-        G.remove_edge(u,v)
+        if params.use_adjacency_matrix:
+            G.add_edge(u,v)
+            adjacency = nx.adjacency_matrix(G, nodelist = I).todense()
+            adjacency = np.multiply(adjacency, self.adjacency_0)
+            adjacency_normalized = np.divide(adjacency, params.n)
+            f.extend(adjacency_normalized.flatten().tolist()[0])
+            G.remove_edge(u,v)
 
         # K representation
-        K_list = []
-        for i in I:
-            if i in K:
-                K_list.append(1)
-            else:
-                K_list.append(0)
-        f.extend(K_list)
+        if params.use_K_representation:
+            K_list = []
+            for i in I:
+                if i in K:
+                    K_list.append(1)
+                else:
+                    K_list.append(0)
+            f.extend(K_list)
 
         # tier adjacency matrix
-        legal_actions = T.copy()
-        T_matrix = np.zeros((10, 10)) # needs to change for anything not 10x10
-        for (c1,c2) in legal_actions:
-            T_matrix[c1,c2] = 1
-        T_vec = list(T_matrix.flatten())
-        f.extend(T_vec)
+        if params.use_tier_adjacency_matrix:
+            legal_actions = T.copy()
+            T_matrix = np.zeros((10, 10)) # needs to change for anything not 10x10
+            for (c1,c2) in legal_actions:
+                T_matrix[c1,c2] = 1
+            T_vec = list(T_matrix.flatten())
+            f.extend(T_vec)
 
-        # edge connectivity
-        f.extend(self.polynomialize(avg_edge_connectivity(G, I, u), num_polynomial))
-        f.extend(self.polynomialize(avg_edge_connectivity(G, I, v), num_polynomial))
-
-        # node connectivity
-        f.extend(self.polynomialize(avg_node_connectivity(G, I, u), num_polynomial))
-        f.extend(self.polynomialize(avg_node_connectivity(G, I, v), num_polynomial))
+        # edge and node connectivity
+        if params.use_connectivity:
+            f.extend(self.polynomialize(avg_edge_connectivity(G, I, u), params.num_polynomial))
+            f.extend(self.polynomialize(avg_edge_connectivity(G, I, v), params.num_polynomial))
+            f.extend(self.polynomialize(avg_node_connectivity(G, I, u), params.num_polynomial))
+            f.extend(self.polynomialize(avg_node_connectivity(G, I, v), params.num_polynomial))
 
         # node2vec every time
         # G_with_weights = nx.DiGraph()
@@ -683,10 +696,7 @@ if __name__ == '__main__':
     total_100node = 0
     total_hits = 0
     total_hash = 0
-    # filenames = ['M10N10-16903.csv']
     filenames = filenames[0:1000]
-
-    # filenames = sorted(glob.glob('M5N5-*.csv'))
 
     output_filename = "results_" + os.path.basename(__file__)
     output_filename = output_filename.replace('.py','')
@@ -699,18 +709,13 @@ if __name__ == '__main__':
     print(header)
     output_file.write(header+'\n')
 
-
     # load RL model
-    D_in = 482
-    H1 = 1000
-    H2 = 1000
-    D_out = 1
     model = torch.nn.Sequential(
-        torch.nn.Linear(D_in, H1),
+        torch.nn.Linear(params.D_in, params.H1),
         torch.nn.Sigmoid(),
-        torch.nn.Linear(H1, H2),
+        torch.nn.Linear(params.H1, params.H2),
         torch.nn.Sigmoid(),
-        torch.nn.Linear(H2, D_out)
+        torch.nn.Linear(params.H2, params.D_out)
     )
 
     checkpoint_filename = "C:\\Users\\shepht2\\Documents\\School\\Masters\\STV Ranked Pairs\\RL\\results\\9-22\\results_RP_RL_main240295240_model.pth.tar"
