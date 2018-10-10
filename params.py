@@ -32,7 +32,7 @@ f_train_till_find_all_winners = 1
 f_test_using_PUT_RP = 0
 
 # V2 has model return values for all edges
-f_use_v2 = 1
+f_use_v2 = 0
 
 # Testing v2 tests number of samples to find all winners
 f_use_testing_v2 = 1
@@ -158,6 +158,9 @@ f_shape_reward = 1
 tau_for_testing = 0.1
 cutoff_testing_iterations = 25000
 
+# if train_till_find_all_winners, stops after this many iterations
+cutoff_training_iterations = 25000
+
 
 # Supervised Learning Parameters
 
@@ -245,12 +248,15 @@ def print_params(parameters_file):
     if not f_test_using_PUT_RP and not f_use_testing_v2:
         parameters_file.write("Num Test Iterations\t" + str(num_test_iterations) + '\n')
     parameters_file.write("Train Till Find All Winners\t" + str(f_train_till_find_all_winners) + '\n')
+    if f_train_till_find_all_winners:
+        parameters_file.write("cutoff_training_iterations\t" + str(cutoff_training_iterations) + '\n')
     parameters_file.write("Test Using PUT_RP\t" + str(f_test_using_PUT_RP) + '\n')
     parameters_file.write("Use V2\t" + str(f_use_v2) + '\n')
     parameters_file.write("Shape Reward\t" + str(f_shape_reward) + '\n')
     parameters_file.write("Use Testing V2\t" + str(f_use_testing_v2) + '\n')
     if f_use_testing_v2:
         parameters_file.write("Tau for Testing\t" + str(tau_for_testing) + '\n')
+        parameters_file.write("cutoff_testing_iterations\t" + str(cutoff_testing_iterations) + '\n')
 
     parameters_file.write("SL test every\t" + str(SL_test_every) + '\n')
     parameters_file.write("SL_optimal_action_learning_rate\t" + str(SL_optimal_action_learning_rate) + '\n')

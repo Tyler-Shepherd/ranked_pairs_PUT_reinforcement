@@ -164,6 +164,9 @@ class RP_SL():
                     max_action = e
                     max_action_val = action_Q_val
 
+            # for random action selection testing
+            # max_action = legal_actions[random.randint(0, len(legal_actions) - 1)]
+
             if max_action in set(actions_optimal):
                 # we're good
                 # print('good')

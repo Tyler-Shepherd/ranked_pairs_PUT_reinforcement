@@ -121,12 +121,13 @@ def test_model_using_PUT_RP(test_output_file, agent, test_filenames, model_id, n
 '''
 Tests model
 '''
-def test_model(test_output_file, agent, test_filenames, true_winners, model_id, num_times_tested):
+def test_model(test_output_file, test_output_summary_file, agent, test_filenames, true_winners, model_id, num_times_tested):
     # Test the agents learned model
     RP_utils.save_model(agent.model, "RL_test_" + str(num_times_tested), model_id)
 
     num_found_test = 0
     num_total_iterations = 0
+    time_to_test = 0
     j = 0
 
     if params.f_use_testing_v2:
@@ -135,15 +136,12 @@ def test_model(test_output_file, agent, test_filenames, true_winners, model_id, 
         print("Starting test", num_times_tested)
     test_output_file.write("***************************************\n")
 
-    start_test = time.perf_counter()
-
     for test_inputfile in test_filenames:
         test_profile = read_profile(test_inputfile)
 
-        start_file = time.perf_counter()
-
         winners = set(true_winners[j])
 
+        start_file = time.perf_counter()
         if params.f_use_testing_v2:
             test_PUT_winners, times_discovered, num_iters_to_find_all_winners = agent.test_model_v2(test_profile, winners)
         else:
@@ -152,6 +150,8 @@ def test_model(test_output_file, agent, test_filenames, true_winners, model_id, 
         test_time = time.perf_counter() - start_file
         num_found_test += len(test_PUT_winners)
         num_total_iterations += num_iters_to_find_all_winners
+
+        time_to_test += test_time
 
         missed_winners = winners - test_PUT_winners
 
@@ -162,9 +162,9 @@ def test_model(test_output_file, agent, test_filenames, true_winners, model_id, 
         test_output_file.flush()
         j += 1
 
-    print("Test found", num_found_test, "in", num_total_iterations, "iterations, took", time.perf_counter() - start_test)
-    test_output_file.write("END" + "\t" + str(num_times_tested) + "\t" + str(num_found_test) + "\t" + str(num_total_iterations) + "\n")
-    test_output_file.flush()
+    print("Test found", num_found_test, "in", num_total_iterations, "iterations, took", time_to_test)
+    test_output_summary_file.write(str(num_times_tested) + "\t" + str(num_found_test) + "\t" + str(num_total_iterations) + "\t" + str(num_total_iterations / len(test_filenames)) + "\t" + str(time_to_test) + "\t" + str(time_to_test / len(test_filenames)) + "\n")
+    test_output_summary_file.flush()
 
 
 class RP_RL():
@@ -196,8 +196,10 @@ class RP_RL():
         output_filename = str(model_id) + "_RL_training_results.txt"
         loss_filename = str(model_id) + "_RL_loss.txt"
         test_output_filename = str(model_id) + "_RL_test_results.txt"
+        test_output_summary_filename = str(model_id) + "_RL_test_summary_results.txt"
         output_file = open(rpconfig.results_path + output_filename, "w+")
         test_output_file = open(rpconfig.results_path + test_output_filename, "w+")
+        test_output_summary_file = open(rpconfig.results_path + test_output_summary_filename, "w+")
         loss_file = open(rpconfig.results_path + loss_filename, "w+")
 
         # Create RL base
@@ -229,7 +231,7 @@ class RP_RL():
         print("Starting Reinforcement Learning", model_id)
 
         # Print header
-        header = "Inputfile\tPUT-winners\tExploration Rate\tLearning Rate\tTau\tStop Conditions\tNum Nodes\tNum Winners Found\tLoss\tAvg Loss\tIs Acyclic\tIter To Find Winner\tIters To Find All Winners\tRuntime"
+        header = "Inputfile\tPUT-winners\tExploration Rate\tLearning Rate\tTau\tStop Conditions\tNum Nodes\tNum Winners Found\tLoss\tAvg Loss\tIs Acyclic\tIter To Find Winner\tIters To Find All Winners\tRunning Nodes\tRuntime"
         print(header)
         output_file.write(header + '\n')
         output_file.flush()
@@ -263,9 +265,12 @@ class RP_RL():
         # Print test output file heading
         if not params.f_test_using_PUT_RP:
             test_header = 'Profile\tPUT-Winners\tNum Winners\tMissed Winners\tNum Missed Winners\tNum Iters\tIter Discoverd\tRuntime'
+            test_output_summary_file.write("Test\tNum PUT-Winners Found\tTotal Num Iterations\tAvg Iterations Per Profile\tTotal Time\tAvg Time Per Profile\n")
+            test_output_summary_file.flush()
         else:
             test_header = "inputfile\tPUT-winners\tnum nodes\tdiscovery states\tmax discovery state\tdiscovery times\tmax discovery times\tstop condition hits\tsum stop cond hits\tnum hashes\tnum initial bridges\tnum redundant edges\ttime for cycles\truntime"
         test_output_file.write(test_header + '\n')
+        test_output_file.flush()
 
         # Print additional parameters
         parameters_file.write("RL Data Path\t" + rpconfig.path + '\n')
@@ -282,7 +287,7 @@ class RP_RL():
                 if params.f_test_using_PUT_RP:
                     test_model_using_PUT_RP(test_output_file, agent, test_filenames, model_id, num_times_tested)
                 else:
-                    test_model(test_output_file, agent, test_filenames, true_winners_test, model_id, num_times_tested)
+                    test_model(test_output_file, test_output_summary_file, agent, test_filenames, true_winners_test, model_id, num_times_tested)
 
                 num_times_tested += 1
 
@@ -313,10 +318,10 @@ class RP_RL():
 
             is_acyclic = str(nx.is_directed_acyclic_graph(agent.E_0))
 
-            result_text = "%s\t%r\t%f\t%f\t%f\t%r\t%d\t%d\t%f\t%f\t%s\t%r\t%d\t%f" % \
+            result_text = "%s\t%r\t%f\t%f\t%f\t%r\t%d\t%d\t%f\t%f\t%s\t%r\t%d\t%d\t%f" % \
                           (inputfile, PUT_winners, base.exploration_rate, base.learning_rate, base.tau,
                            stats.stop_condition_hits, stats.num_nodes, len(PUT_winners), stats.running_loss,
-                           avg_loss_per_node, is_acyclic, iter_to_find_winner, iter_to_find_all_winners, end - start)
+                           avg_loss_per_node, is_acyclic, iter_to_find_winner, iter_to_find_all_winners, agent.running_nodes, end - start)
             print(i, result_text)
             output_file.write(result_text + '\n')
             output_file.flush()
@@ -327,7 +332,7 @@ class RP_RL():
         if params.f_test_using_PUT_RP:
             test_model_using_PUT_RP(test_output_file, agent, test_filenames, model_id, num_times_tested)
         else:
-            test_model(test_output_file, agent, test_filenames, true_winners, model_id, num_times_tested)
+            test_model(test_output_file, test_output_summary_file, agent, test_filenames, true_winners, model_id, num_times_tested)
 
         print("Total Time to Train: %f" % total_time)
         print("Average Time Per Profile: %f" % (total_time / len(train_filenames)))
@@ -337,4 +342,5 @@ class RP_RL():
         # Close files
         output_file.close()
         test_output_file.close()
+        test_output_summary_file.close()
         loss_file.close()

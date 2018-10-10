@@ -138,7 +138,7 @@ class RL_base():
         prev_winners = set()
 
         if f_train_until_found_all_winners:
-            while agent.known_winners != true_winners:
+            while agent.known_winners != true_winners and iter_to_find_all_winners < params.cutoff_training_iterations:
                 assert agent.known_winners < true_winners
 
                 self.learning_iteration(agent, full_K=1)
