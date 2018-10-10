@@ -92,8 +92,6 @@ class RL_base():
                             max_action_val = action_Q_val
 
                     a = max_action
-                    if max_action == None:
-                        print('None?')
                     if params.debug_mode >= 2:
                         print("greedily select action", a, "with q val", max_action_val)
             elif params.exploration_algo == 2:

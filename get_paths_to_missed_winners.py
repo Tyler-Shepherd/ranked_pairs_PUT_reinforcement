@@ -251,8 +251,10 @@ class MechanismRankedPairs():
                             print("Only 1 edge in tier")
 
                         if nx.has_path(G, max_edge[1], max_edge[0]) is False:
+                            E.add_edges_from(T)
+                            P.append((self.edges2string(G.edges(), I), self.edges2string(E.edges(), I), known_winners.copy(), max_edge))
+                            E.remove_edges_from(T)
                             G.add_edges_from(T)
-                            P.append((self.edges2string(G.edges, I), self.edges2string(E.edges, I), known_winners.copy(), max_edge))
                         continue
 
 
@@ -305,8 +307,8 @@ class MechanismRankedPairs():
                         Pc = copy.deepcopy(P)
 
                         EUT = E.copy()
-                        EUT.add_edges_from(Tc)
-                        Pc.append((self.edges2string(Gc.edges, I), self.edges2string(EUT.edges, I), known_winners.copy(), e))
+                        EUT.add_edges_from(T)
+                        Pc.append((self.edges2string(G.edges(), I), self.edges2string(EUT.edges(), I), known_winners.copy(), e))
                         child_node = Node(value=(Gc,Ec,Tc,Pc))
 
                         # LPwinners
@@ -393,7 +395,7 @@ if __name__ == '__main__':
 
     os.chdir(rpconfig.path)
 
-    output_data_file = open('missed_winners_data.dat', 'w')
+    output_data_file = open('missed_winners_data_2.dat', 'w')
 
     # need to update for anything other than m10
     I = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]

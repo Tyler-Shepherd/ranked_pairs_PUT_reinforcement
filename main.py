@@ -26,6 +26,7 @@ import glob
 
 import params as params
 from RP_supervised_learning import RP_SL
+from RP_supervised_learning_v2 import RP_SL_v2
 from RP_RL_main import RP_RL
 import RP_utils
 
@@ -40,15 +41,24 @@ if __name__ == '__main__':
     torch.manual_seed(time.time())
 
     # Create model
-    model = torch.nn.Sequential(
-        torch.nn.Linear(params.D_in, params.H1),
-        torch.nn.Sigmoid(),
-        torch.nn.Linear(params.H1, params.H2),
-        torch.nn.Sigmoid(),
-        torch.nn.Linear(params.H2, params.D_out)
-    )
+    if params.f_use_v2:
+        model = torch.nn.Sequential(
+            torch.nn.Linear(params.D_in, params.H1),
+            torch.nn.Sigmoid(),
+            torch.nn.Linear(params.H1, params.H2),
+            torch.nn.Sigmoid(),
+            torch.nn.Linear(params.H2, params.D_out),
+            torch.nn.Softmax(dim=0)
+        )
+    else:
+        model = torch.nn.Sequential(
+            torch.nn.Linear(params.D_in, params.H1),
+            torch.nn.Sigmoid(),
+            torch.nn.Linear(params.H1, params.H2),
+            torch.nn.Sigmoid(),
+            torch.nn.Linear(params.H2, params.D_out)
+        )
     model.apply(init_weights)
-    # TODO: include softmax if v2
 
     # Identifying id for this run
     model_id = random.randint(0, 1000000000)
@@ -66,7 +76,10 @@ if __name__ == '__main__':
 
     # Run SL (based on param flag)
     if params.run_SL:
-        RP_SL().RP_SL(model, model_id)
+        if params.f_use_v2:
+            RP_SL_v2().RP_SL_v2(model, model_id, parameters_file)
+        else:
+            RP_SL().RP_SL(model, model_id, parameters_file)
 
     # Run RL (based on param flag)
     if params.run_RL:

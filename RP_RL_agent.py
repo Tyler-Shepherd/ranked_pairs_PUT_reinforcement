@@ -39,11 +39,6 @@ class RP_RL_stats():
         self.running_loss = 0
 
 # Util functions
-def init_weights(m):
-    if type(m) == torch.nn.Linear:
-        torch.nn.init.xavier_uniform_(m.weight)
-        m.bias.data.fill_(0.01)
-
 def edges2string(edges, I):
     m = len(I)
     gstring = list(str(0).zfill(m**2))
@@ -171,7 +166,6 @@ class RP_RL_agent():
         for p in self.target_model.parameters():
             p.requires_grad = False
 
-        self.model.apply(init_weights)
         self.target_model.load_state_dict(self.model.state_dict())
 
         # loss reset every time it gets printed
@@ -382,8 +376,10 @@ class RP_RL_agent():
         return [val**j for j in range(1, i+1)]
 
 
-    # Returns input layer features at current state taking action a
-    # a is an edge
+    '''
+    Returns input layer features at current state taking action a
+    a is an edge
+    '''
     def state_features(self, a):
         u = a[0]
         v = a[1]
@@ -618,8 +614,9 @@ class RP_RL_agent():
                     if w not in self.K:
                         if w not in self.winners_visited:
                             self.winners_visited[w] = 0
+                        winner_reward_val = 1 - self.winners_visited[w] / (params.num_training_iterations / 20 + self.winners_visited[w])
+                        reward_val = max(reward_val, winner_reward_val)
                         self.winners_visited[w] += 1
-                        reward_val += 1.0 / self.winners_visited[w]
             else:
                 reward_val = 1
 
@@ -762,9 +759,7 @@ class RP_RL_agent():
 
                     # Boltzmann
                     q_vals = []
-                    q_vals_blah = []
                     for e in legal_actions:
-                        q_vals_blah.append(self.get_Q_val(e).item())
                         q_vals.append(exp(self.get_Q_val(e).item() / params.tau_for_testing))
                     q_sum = sum(q_vals)
                     probs = []

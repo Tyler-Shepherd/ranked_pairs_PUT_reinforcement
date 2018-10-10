@@ -8,11 +8,13 @@ import datetime
 run_SL = 0
 run_RL = 1
 
+############## Reinforcement Learning Parameters
+
 # After how many profiles trained to test the model
 test_every = 3500
 
 # Whether or not to test before any training
-test_at_start = 1
+test_at_start = 0
 
 # Whether to shuffle the training data
 shuffle_training_data = 1
@@ -20,12 +22,6 @@ shuffle_training_data = 1
 # Number of iterations to use when testing
 # Doesn't matter if using test_till_find_all_winners or testing_v2
 num_test_iterations = 10
-
-# Whether to initialize model from default values (for comparison purposes)
-f_start_from_default = 1
-
-# Path to default model (used only if f_start_from_default)
-default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\10-3\\results_RP_RL_main161490381_model.pth.tar"
 
 # Whether to use experience replay
 f_experience_replay = 0
@@ -36,12 +32,10 @@ f_train_till_find_all_winners = 1
 f_test_using_PUT_RP = 0
 
 # V2 has model return values for all edges
-f_use_v2 = 0
+f_use_v2 = 1
 
 # Testing v2 tests number of samples to find all winners
 f_use_testing_v2 = 1
-
-
 
 learning_rate = 0.05
 # 0 = no decay
@@ -81,13 +75,20 @@ m = 10.0
 n = 10.0
 
 
+################## Model Parameters
+
+# Whether to initialize model from default values (for comparison purposes)
+f_start_from_default = 0
+
+# Path to default model (used only if f_start_from_default)
+default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\10-3\\results_RP_RL_main161490381_model.pth.tar"
 
 # What features to include
 num_polynomial = 1
-use_in_out = True # out/in of u,v
+use_in_out = False # out/in of u,v
 use_total_degree = False
 use_in_out_binary = False # binary out/in of u,v
-use_K = True # u,v in K
+use_K = False # u,v in K
 use_voting_rules = False
 use_edge_weight = False
 use_visited = False
@@ -97,8 +98,8 @@ use_posmat = False
 use_tier_adjacency_matrix = False
 use_connectivity = False
 
-use_adjacency_matrix = False
-use_K_representation = False
+use_adjacency_matrix = True
+use_K_representation = True
 
 
 # Compute D_in from features used
@@ -138,7 +139,7 @@ H1 = 1000  # first hidden dimension
 H2 = 1000  # second hidden dimension
 
 if f_use_v2:
-    D_out = 90 # TODO: fix
+    D_out = int(m * (m - 1)) # output dimension, values over all actions
 else:
     D_out = 1 # just want q value
 
@@ -156,6 +157,24 @@ f_shape_reward = 1
 # used in testing v2
 tau_for_testing = 0.1
 cutoff_testing_iterations = 25000
+
+
+# Supervised Learning Parameters
+
+SL_test_every = 25
+SL_test_at_start = 1
+
+SL_optimal_action_learning_rate = 0.05
+SL_bad_action_learning_rate = 0.005
+
+SL_num_epochs = 100
+SL_num_training_data = 500
+SL_num_test_data = 1000
+
+
+
+
+
 
 
 # debug_mode
@@ -232,6 +251,13 @@ def print_params(parameters_file):
     parameters_file.write("Use Testing V2\t" + str(f_use_testing_v2) + '\n')
     if f_use_testing_v2:
         parameters_file.write("Tau for Testing\t" + str(tau_for_testing) + '\n')
+
+    parameters_file.write("SL test every\t" + str(SL_test_every) + '\n')
+    parameters_file.write("SL_optimal_action_learning_rate\t" + str(SL_optimal_action_learning_rate) + '\n')
+    parameters_file.write("SL_bad_action_learning_rate\t" + str(SL_bad_action_learning_rate) + '\n')
+    parameters_file.write("SL_num_epochs\t" + str(SL_num_epochs) + '\n')
+    parameters_file.write("SL_num_training_data\t" + str(SL_num_training_data) + '\n')
+    parameters_file.write("SL_num_test_data\t" + str(SL_num_test_data) + '\n')
 
     parameters_file.write("Date\t" + str(datetime.datetime.now()) + '\n')
 

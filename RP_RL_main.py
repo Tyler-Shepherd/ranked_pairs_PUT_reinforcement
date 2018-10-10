@@ -26,7 +26,6 @@ import datetime
 from PUT_RP_using_model import MechanismRankedPairs
 from PUT_RP_using_model_v2 import MechanismRankedPairs_v2
 
-sys.path.append('./RL')
 from RL_base import RL_base
 #from RL_base_experience_replay import RL_base_experience_replay
 from RP_RL_agent import RP_RL_agent
@@ -293,6 +292,7 @@ class RP_RL():
             profile = read_profile(inputfile)
 
             # Run the profile
+            print(inputfile)
             start = time.perf_counter()
             if params.f_train_till_find_all_winners:
                 rp_results, iter_to_find_winner, iter_to_find_all_winners = base.reinforcement_loop(agent, profile, True, set(true_winners_train[i]))
@@ -325,7 +325,7 @@ class RP_RL():
 
         # Final test
         if params.f_test_using_PUT_RP:
-            test_model_using_PUT_RP(test_output_file, agent, test_filenames, true_winners_test, model_id, num_times_tested)
+            test_model_using_PUT_RP(test_output_file, agent, test_filenames, model_id, num_times_tested)
         else:
             test_model(test_output_file, agent, test_filenames, true_winners, model_id, num_times_tested)
 

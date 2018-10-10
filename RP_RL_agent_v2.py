@@ -28,6 +28,9 @@ import glob
 #import node2vec
 #import main as node2vecmain
 
+import params
+import RP_utils
+
 # model returns softmax probabilities over all edges
 
 class RP_RL_stats():
@@ -165,92 +168,39 @@ def avg_node_connectivity(G, I, s):
 
 
 class RP_RL_agent_v2():
-    def __init__(self, learning_rate = 0, loss_output_file = None):
+    def __init__(self, model, learning_rate = 0, loss_output_file = None):
         # Initialize learning model
-
-        self.num_polynomial = 1
-        self.use_visited = False
-        self.use_cycles = False
-
-        self.m = 10.0
-        self.n = 10.0
+        self.model = model
 
         self.edges_ordered = []
-        for i in range(int(self.m)):
-            for j in range(int(self.m)):
+        for i in range(int(params.m)):
+            for j in range(int(params.m)):
                 if i != j:
                     self.edges_ordered.append((i,j))
-
-        self.D_in = 0
-        # self.D_in += self.num_polynomial * 6 + 4 + 2 + self.num_polynomial * 8 + self.num_polynomial  # out/in, out/in binary, known winners, voting rules, edge weight
-        # self.D_in += self.num_polynomial * 4 + 2 # out/in, in K
-        # self.D_in += 256 # node2vec
-
-        if self.use_visited:
-            self.D_in += self.num_polynomial
-
-        if self.use_cycles:
-            self.D_in += self.num_polynomial
-
-        # self.D_in += self.m * (self.m-1) # vectorized wmg
-        # self.D_in += self.m * self.m # posmat
-        self.D_in += self.m * self.m # adjacency matrix
-        # self.D_in += self.m * self.m # tier adjacency matrix
-        # self.D_in += self.num_polynomial * 4 # edge and node connectivity
-        self.D_in += self.m # K representation
-
-        self.D_in = int(self.D_in)
-
-        self.H1 = 1000 # first hidden dimension
-        self.H2 = 1000 # second hidden dimension
-
-        self.D_out = int(self.m * (self.m-1))  # output dimension, values over all actions
-
-        self.model = torch.nn.Sequential(
-            torch.nn.Linear(self.D_in, self.H1),
-            torch.nn.Sigmoid(),
-            torch.nn.Linear(self.H1, self.H2),
-            torch.nn.Sigmoid(),
-            torch.nn.Linear(self.H2, self.D_out),
-            torch.nn.Softmax(dim=0)
-        )
 
         # target fixed network to use in updating loss for stabilization
         # gets updated to self.model periodically
         # https://pytorch.org/tutorials/intermediate/reinforcement_q_learning.html
-        self.target_model = torch.nn.Sequential(
-            torch.nn.Linear(self.D_in, self.H1),
-            torch.nn.Sigmoid(),
-            torch.nn.Linear(self.H1, self.H2),
-            torch.nn.Sigmoid(),
-            torch.nn.Linear(self.H2, self.D_out),
-            torch.nn.Softmax(dim=0)
-        )
+        self.target_model = copy.deepcopy(model)
 
         for p in self.target_model.parameters():
             p.requires_grad = False
 
-        self.model.apply(init_weights)
         self.target_model.load_state_dict(self.model.state_dict())
-
-        #print("INIT")
-        #self.print_model("")
 
         # self.loss_fn = torch.nn.MSELoss(size_average=False)  # using mean squared error
         self.loss_fn = torch.nn.SmoothL1Loss(size_average=False) # Huber loss
 
         # loss reset every time it gets printed
+        # can sum over multiple profiles
         self.running_loss = 0
+
+        # total number of running nodes over all training
         self.running_nodes = 0
-        self.print_loss_every = 10000
 
         self.loss_output_file = loss_output_file
 
-        # 1 = gradient descent
-        # 2 = adam
-        self.optimizer_type = 1
-
-        if self.optimizer_type == 2:
+        if params.optimizer_algo == 2:
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
 
         self.visited = {}
@@ -267,14 +217,6 @@ class RP_RL_agent_v2():
         # self.node2vec_args.num_walks = 1
         # self.node2vec_args.walk_length = 1
         # self.node2vec_args.dimensions = 2
-
-        self.f_shape_reward = 1
-
-        # used in testing v2
-        self.tau_for_testing = 0.1
-        self.cutoff_testing_iterations = 25000
-
-        self.debug_mode = 0
 
     '''
     Initializes environment for an iteration of learning
@@ -315,7 +257,7 @@ class RP_RL_agent_v2():
 
         # Compute cycles
         # too slow for m50n50
-        if self.use_cycles:
+        if params.use_cycles:
             cycles = nx.simple_cycles(Gc)
 
             self.num_cycles = 0
@@ -358,25 +300,35 @@ class RP_RL_agent_v2():
         self.posmat = profile2posmat(self.profile_matrix)
         self.adjacency_0 = nx.adjacency_matrix(self.E_0_really, nodelist=self.I).todense()
 
+        if params.f_shape_reward:
+            self.winners_visited = {}
+
         self.stats = RP_RL_stats()
 
     '''
     Resets G (the current RP graph), E (the graph of unadded edges) and K (the known winners)
     Does not reset the visited set
+    Randomly initializes K from known_winners - if iter_to_find_winner supplied, uses that to determine probability of including each winner
     '''
-    def reset_environment(self):
+    def reset_environment(self, iter_to_find_winner = None):
         self.G = self.G_0.copy()
         self.E = self.E_0.copy()
 
         # Randomly initialize known winners
         self.K = set()
 
-        for a in self.known_winners:
-            if random.random() > 0.5:
-                self.K.add(a)
+        if iter_to_find_winner is not None:
+            max_num_iters = max(i for i in iter_to_find_winner.values())
+            for a in self.known_winners:
+                if random.random() > (1 - iter_to_find_winner[a] / (max_num_iters + 1)):
+                    self.K.add(a)
+        else:
+            for a in self.known_winners:
+                if random.random() > 0.5:
+                    self.K.add(a)
         self.K = frozenset(self.K)
 
-        if self.use_visited:
+        if params.use_visited:
             self.update_visited()
 
     '''
@@ -392,25 +344,25 @@ class RP_RL_agent_v2():
         # Stop Condition 2: Pruning. Possible winners are subset of known winners
         if set(possible_winners) <= self.K:
             self.stats.stop_condition_hits[2] += (1 * update_stats)
-            if self.debug_mode >= 3:
+            if params.debug_mode >= 3:
                 print("at_goal_state: 2")
-            return 2
+            return 2, possible_winners
 
         # Stop Condition 1: E has no more edges
         if len(self.E.edges()) == 0:
             self.stats.stop_condition_hits[1] += (1 * update_stats)
-            if self.debug_mode >= 3:
+            if params.debug_mode >= 3:
                 print("at_goal_state: 1")
-            return 1
+            return 1, possible_winners
 
         # Stop Condition 3: Exactly one node has indegree 0
         if len(possible_winners) == 1:
             self.stats.stop_condition_hits[3] += (1 * update_stats)
-            if self.debug_mode >= 3:
+            if params.debug_mode >= 3:
                 print("at_goal_state: 3")
-            return 3
+            return 3, possible_winners
 
-        return -1
+        return -1, possible_winners
 
     '''
     Returns the highest weight edges in E that do not cause a cycle if added
@@ -446,46 +398,43 @@ class RP_RL_agent_v2():
     def polynomialize(self, val, i):
         return [val**j for j in range(1, i+1)]
 
-
-    # Returns input layer features at current state taking action a
-    # a is an edge
+    '''
+    Returns input layer features at current state
+    '''
     def state_features(self):
         f = []
 
-        # f.extend(self.vectorized_wmg)
-        # f.extend(self.posmat)
+        if params.use_vectorized_wmg:
+            f.extend(self.vectorized_wmg)
+
+        if params.use_posmat:
+            f.extend(self.posmat)
 
         # adjacency matrix of current state
-        adjacency = nx.adjacency_matrix(self.G, nodelist = self.I).todense()
-        adjacency = np.multiply(adjacency, self.adjacency_0)
-        adjacency_normalized = np.divide(adjacency, self.n)
-        f.extend(adjacency_normalized.flatten().tolist()[0])
+        if params.use_adjacency_matrix:
+            adjacency = nx.adjacency_matrix(self.G, nodelist = self.I).todense()
+            adjacency = np.multiply(adjacency, self.adjacency_0)
+            adjacency_normalized = np.divide(adjacency, params.n)
+            f.extend(adjacency_normalized.flatten().tolist()[0])
 
         # K representation
-        K_list = []
-        for i in self.I:
-            if i in self.K:
-                K_list.append(1)
-            else:
-                K_list.append(0)
-        f.extend(K_list)
+        if params.use_K_representation:
+            K_list = []
+            for i in self.I:
+                if i in self.K:
+                    K_list.append(1)
+                else:
+                    K_list.append(0)
+            f.extend(K_list)
 
         # tier adjacency matrix
-        # legal_actions = self.get_legal_actions()
-        # legal_actions.remove(a)
-        # T = np.zeros((int(self.m), int(self.m)))
-        # for (c1,c2) in legal_actions:
-        #     T[c1,c2] = 1
-        # T_vec = list(T.flatten())
-        # f.extend(T_vec)
-
-        # edge connectivity
-        # f.extend(self.polynomialize(avg_edge_connectivity(self.G, self.I, u), self.num_polynomial))
-        # f.extend(self.polynomialize(avg_edge_connectivity(self.G, self.I, v), self.num_polynomial))
-
-        # node connectivity
-        # f.extend(self.polynomialize(avg_node_connectivity(self.G, self.I, u), self.num_polynomial))
-        # f.extend(self.polynomialize(avg_node_connectivity(self.G, self.I, v), self.num_polynomial))
+        if params.use_tier_adjacency_matrix:
+            legal_actions = self.get_legal_actions()
+            T = np.zeros((int(params.m), int(params.m)))
+            for (c1,c2) in legal_actions:
+                T[c1,c2] = 1
+            T_vec = list(T.flatten())
+            f.extend(T_vec)
 
         # node2vec every time
         # G_with_weights = nx.DiGraph()
@@ -504,7 +453,7 @@ class RP_RL_agent_v2():
 
         # node2vec_f = np.append(node2vec_uv, np.array(f))
 
-        if self.debug_mode >= 3:
+        if params.debug_mode >= 3:
             print("features", f)
 
         return Variable(torch.from_numpy(np.array(f)).float())
@@ -519,7 +468,7 @@ class RP_RL_agent_v2():
             q_vals_vector = self.model(state_features)
 
         q_vals_dict = {}
-        for i in range(self.D_out):
+        for i in range(params.D_out):
             q_vals_dict[self.edges_ordered[i]] = q_vals_vector[i]
 
         return q_vals_dict
@@ -536,7 +485,7 @@ class RP_RL_agent_v2():
                 self.known_winners.add(c)
                 new_winners.append(c)
 
-        if self.debug_mode >= 2:
+        if params.debug_mode >= 2:
             print('goal state with new winners', new_winners)
 
         return new_winners
@@ -563,7 +512,7 @@ class RP_RL_agent_v2():
     And performs reductions
     '''
     def make_move(self, a, f_testing = False):
-        if self.debug_mode >= 2:
+        if params.debug_mode >= 2:
             print('making move', a)
 
         self.G.add_edges_from([a])
@@ -597,16 +546,16 @@ class RP_RL_agent_v2():
 
         self.stats.num_nodes += 1
 
-        if self.use_visited:
+        if params.use_visited:
             self.update_visited()
 
         if not f_testing:
             self.running_nodes += 1
 
-            if self.running_nodes % self.print_loss_every == 0:
-                print("*******LOSS:", self.running_loss / self.print_loss_every)
+            if self.running_nodes % params.print_loss_every == 0:
+                print("*******LOSS:", self.running_loss / params.print_loss_every)
                 if self.loss_output_file:
-                    self.loss_output_file.write(str(self.running_nodes) + '\t' + str(self.running_loss / self.print_loss_every) + '\n')
+                    self.loss_output_file.write(str(self.running_nodes) + '\t' + str(self.running_loss / params.print_loss_every) + '\n')
                     self.loss_output_file.flush()
 
                 self.running_loss = 0
@@ -614,7 +563,7 @@ class RP_RL_agent_v2():
 
 
     def reward(self):
-        current_state = self.at_goal_state(update_stats=0)
+        current_state, possible_winners = self.at_goal_state(update_stats=0)
 
         if current_state == -1:
             # Not a goal state
@@ -624,7 +573,17 @@ class RP_RL_agent_v2():
             reward_val = -1
         else:
             # Found a new winner
-            reward_val = 1
+            if params.f_shape_reward:
+                reward_val = 0
+                for w in possible_winners:
+                    if w not in self.K:
+                        if w not in self.winners_visited:
+                            self.winners_visited[w] = 0
+                        winner_reward_val = 1 - self.winners_visited[w] / (params.num_training_iterations / 20 + self.winners_visited[w])
+                        reward_val = max(reward_val, winner_reward_val)
+                        self.winners_visited[w] += 1
+            else:
+                reward_val = 1
 
         return torch.tensor(reward_val, dtype = torch.float32)
 
@@ -642,10 +601,10 @@ class RP_RL_agent_v2():
         self.stats.running_loss += loss.item()
         self.running_loss += loss.item()
 
-        if self.debug_mode >= 2:
+        if params.debug_mode >= 2:
             print("loss, old_q_val, new_q_val", loss.item(), old_q_value.item(), new_q_value.item())
 
-        if self.optimizer_type == 1:
+        if params.optimizer_algo == 1:
             # Gradient descent
 
             # Zero the gradients before running the backward pass.
@@ -661,7 +620,7 @@ class RP_RL_agent_v2():
             with torch.no_grad():
                 for param in self.model.parameters():
                     param -= learning_rate * param.grad
-        elif self.optimizer_type == 2:
+        elif params.optimizer_algo == 2:
             # Adam
 
             # Before the backward pass, use the optimizer object to zero all of the
@@ -686,8 +645,11 @@ class RP_RL_agent_v2():
         print("model saved")
 
 
-    # don't use true_winners for this
-    def test_model(self, test_env, num_iterations, true_winners = set()):
+    # TODO
+    def test_model(self, test_env):
+        print("base test_model not implemented for v2")
+        sys.exit(0)
+
         self.initialize(test_env)
 
         times_discovered = []
@@ -706,7 +668,7 @@ class RP_RL_agent_v2():
 
                 num_iters_to_find_all_winners += 1
 
-                while self.at_goal_state() == -1:
+                while self.at_goal_state()[0] == -1:
                     legal_actions = self.get_legal_actions()
 
                     if len(legal_actions) == 0:
@@ -744,27 +706,28 @@ class RP_RL_agent_v2():
 
         return self.known_winners, times_discovered, num_iters_to_find_all_winners
 
-    # not used
-    def test_model_full(self, test_env, num_iterations, true_winners = set()):
+    # tests "how many samples to find all winners"
+    def test_model_v2(self, test_env, true_winners):
         self.initialize(test_env)
 
-        times_discovered = []
+        times_discovered = {}
         num_iters_to_find_all_winners = 0
 
-        # Sample using model greedily
-        # Test with fixed number of iterations
+        # Sample using model
         with torch.no_grad():
-            for iter in range(num_iterations):
             # Test till found all winners
-            # while self.known_winners != true_winners:
+            while self.known_winners != true_winners and num_iters_to_find_all_winners <= params.cutoff_testing_iterations:
+                if not self.known_winners < true_winners:
+                    print(self.known_winners, true_winners)
+                assert self.known_winners < true_winners
+
                 self.reset_environment()
                 self.K = frozenset(self.known_winners)
 
-                # print(self.known_winners, true_winners)
-
                 num_iters_to_find_all_winners += 1
 
-                while self.at_goal_state() == -1:
+                # TODO
+                while self.at_goal_state()[0] == -1:
                     legal_actions = self.get_legal_actions()
 
                     if len(legal_actions) == 0:
@@ -772,36 +735,32 @@ class RP_RL_agent_v2():
                         break
 
                     # for random action selection testing
-                    # max_action = legal_actions[random.randint(0, len(legal_actions) - 1)]
+                    # selected_action = legal_actions[random.randint(0, len(legal_actions) - 1)]
 
-                    max_action = None
-                    max_action_val = float("-inf")
+                    # Boltzmann
+                    action_Q_vals = self.get_Q_vals()
+                    q_vals_boltz = []
+
                     for e in legal_actions:
-                        action_val = self.get_Q_val(e)
+                        q_vals_boltz.append(exp(action_Q_vals[e].item() / params.tau_for_testing))
+                    q_sum = sum(q_vals_boltz)
+                    probs = []
+                    for v in q_vals_boltz:
+                        probs.append(v / q_sum)
+                    legal_actions_index = [i for i in range(len(legal_actions))]
+                    selected_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
 
-                        if action_val > max_action_val:
-                            max_action = e
-                            max_action_val = action_val
+                    assert selected_action is not None
 
-                    assert (max_action is not None)
-
-                    self.make_move(max_action, f_testing = True)
+                    self.make_move(selected_action, f_testing = True)
 
                 # At goal state
                 new_winners = self.goal_state_update()
 
                 for c in new_winners:
-                    times_discovered.append(iter)
-
-        # print("done:", num_iters_to_find_all_winners)
-        # print("time to make move", time_to_make_move)
-        # print("time for actions", time_for_actions)
-        # print("time for legal actions", time_for_legal_actions)
-        # print("time for rest", time_for_reset)
-        # print("time for state str", self.time_for_state_str)
+                    times_discovered[c] = num_iters_to_find_all_winners
 
         return self.known_winners, times_discovered, num_iters_to_find_all_winners
-
 
 
 
