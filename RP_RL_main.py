@@ -332,7 +332,7 @@ class RP_RL():
         if params.f_test_using_PUT_RP:
             test_model_using_PUT_RP(test_output_file, agent, test_filenames, model_id, num_times_tested)
         else:
-            test_model(test_output_file, test_output_summary_file, agent, test_filenames, true_winners, model_id, num_times_tested)
+            test_model(test_output_file, test_output_summary_file, agent, test_filenames, true_winners_test, model_id, num_times_tested)
 
         print("Total Time to Train: %f" % total_time)
         print("Average Time Per Profile: %f" % (total_time / len(train_filenames)))

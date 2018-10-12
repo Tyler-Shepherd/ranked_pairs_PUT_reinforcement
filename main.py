@@ -47,9 +47,22 @@ if __name__ == '__main__':
             torch.nn.Sigmoid(),
             torch.nn.Linear(params.H1, params.H2),
             torch.nn.Sigmoid(),
+            torch.nn.Linear(params.H2, params.H2),
+            torch.nn.Sigmoid(),
+            torch.nn.Linear(params.H2, params.H2),
+            torch.nn.Sigmoid(),
+            torch.nn.Linear(params.H2, params.H2),
+            torch.nn.Sigmoid(),
+            torch.nn.Linear(params.H2, params.H2),
+            torch.nn.Sigmoid(),
+            torch.nn.Linear(params.H2, params.H2),
+            torch.nn.Sigmoid(),
             torch.nn.Linear(params.H2, params.D_out),
             torch.nn.Softmax(dim=0)
         )
+        if params.use_in_out or params.use_total_degree or params.use_in_out_binary or params.use_K or params.use_voting_rules or params.use_cycles or params.use_connectivity:
+            print("Features not implemented for v2")
+            sys.exit(0)
     else:
         model = torch.nn.Sequential(
             torch.nn.Linear(params.D_in, params.H1),
@@ -58,6 +71,10 @@ if __name__ == '__main__':
             torch.nn.Sigmoid(),
             torch.nn.Linear(params.H2, params.D_out)
         )
+        if params.use_in_out_matrix or params.use_total_degree_matrix or params.use_in_out_binary_matrix or params.use_voting_rules_matrix or params.use_connectivity_matrix:
+            print("Features not implemented for v1")
+            sys.exit(0)
+
     model.apply(init_weights)
 
     # Identifying id for this run

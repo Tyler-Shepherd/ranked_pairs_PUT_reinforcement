@@ -33,23 +33,6 @@ class RP_SL_v2():
         self.loss_fn = torch.nn.SmoothL1Loss(size_average=False)  # Huber loss
         # self.loss_fn = torch.nn.HingeEmbeddingLoss() # Hinge loss (but it's not actually)
 
-    def string2edges(self, gstring, I):
-        m = len(I)
-        edges = []
-        for i in range(len(gstring)):
-            if gstring[i] == '1':
-                e1 = i % m + min(I)
-                e0 = int((i - e1) / m) + min(I)
-                edges.append((e0, e1))
-        return edges
-
-    def string2K(self, K_str):
-        K = set()
-        for i in range(len(K_str)):
-            if K_str[i] == '1':
-                K.add(i)
-        return K
-
     '''
     Returns the highest weight edges in E that do not cause a cycle if added
     '''
@@ -74,31 +57,74 @@ class RP_SL_v2():
 
         return legal_actions
 
-    def safe_div(self, num, denom):
-        if denom == 0:
-            return 0
-        return num / denom
-
-    # Returns array of val to each power from 1 to i
-    def polynomialize(self, val, i):
-        return [val**j for j in range(1, i+1)]
-
-    def state_features(self, G, K, E_0, adjacency_0):
+    def state_features(self, G, K, T, profile):
         f = []
 
-        # out/in degree
-        # if params.use_in_out:
-        #     f.extend(self.polynomialize(self.safe_div(G.out_degree(u), E_0.out_degree(u)), params.num_polynomial))
-        #     f.extend(self.polynomialize(self.safe_div(G.in_degree(u), E_0.in_degree(u)), params.num_polynomial))
-        #     f.extend(self.polynomialize(self.safe_div(G.out_degree(v), E_0.out_degree(v)), params.num_polynomial))
-        #     f.extend(self.polynomialize(self.safe_div(G.in_degree(v), E_0.in_degree(v)), params.num_polynomial))
+        E_0 = self.profile_to_E0[profile]
+        adjacency_0 = self.profile_to_adjacency0[profile]
 
-        # known winners features
-        # if params.use_K:
-        #     f.append(2 * int(u in K) - 1)
-        #     f.append(2 * int(v in K) - 1)
+        if params.use_in_out_matrix:
+            out_degree = G.out_degree(self.I)
+            for (i,j) in out_degree:
+                f.extend(RP_utils.polynomialize(RP_utils.safe_div(j, E_0.out_degree(i)), params.num_polynomial))
 
-        # adjacency matrix if a is added
+            in_degree = G.in_degree(self.I)
+            for (i,j) in in_degree:
+                f.extend(RP_utils.polynomialize(RP_utils.safe_div(j, E_0.in_degree(i)), params.num_polynomial))
+
+        if params.use_total_degree_matrix:
+            for i in self.I:
+                i_total = G.out_degree(i) + G.in_degree(i)
+                i_e0_total = E_0.out_degree(i) + E_0.in_degree(i)
+                f.extend(RP_utils.polynomialize(RP_utils.safe_div(i_total, i_e0_total), params.num_polynomial))
+
+        if params.use_in_out_binary_matrix:
+            out_degree = G.out_degree(self.I)
+            for (i,j) in out_degree:
+                f.append(2 * int(j > 0) - 1)
+
+            in_degree = G.in_degree(self.I)
+            for (i,j) in in_degree:
+                f.append(2 * int(j > 0) - 1)
+
+        if params.use_voting_rules_matrix:
+            for i in self.profile_to_plurality[profile]:
+                f.extend(RP_utils.polynomialize(i, params.num_polynomial))
+            for i in self.profile_to_borda[profile]:
+                f.extend(RP_utils.polynomialize(i, params.num_polynomial))
+            for i in self.profile_to_copeland[profile]:
+                f.extend(RP_utils.polynomialize(i, params.num_polynomial))
+            for i in self.profile_to_maximin[profile]:
+                f.extend(RP_utils.polynomialize(i, params.num_polynomial))
+
+        if params.use_edge_weight:
+            f.extend(RP_utils.polynomialize(E_0[T[0][0]][T[0][1]]['weight'] / self.profile_to_max_edge_weight[profile], params.num_polynomial))
+
+        if params.use_vectorized_wmg:
+            f.extend(self.profile_to_vectorized_wmg[profile])
+
+        if params.use_posmat:
+            f.extend(self.profile_to_posmat[profile])
+
+        if params.use_tier_adjacency_matrix:
+            T_matrix = np.zeros((int(params.m), int(params.m)))
+            for (c1,c2) in T:
+                T_matrix[c1,c2] = 1
+            T_vec = list(T_matrix.flatten())
+            f.extend(T_vec)
+
+        if params.use_connectivity_matrix:
+            for i in self.I:
+                for j in self.I:
+                    if i != j:
+                        f.extend(RP_utils.polynomialize(local_edge_connectivity(G, i, j) / (params.m-2), params.num_polynomial)) # normalized by m-2 since max edges needed to disconnect i and j is all edges but i -> i and i -> j
+            all_pairs_node_connectivity = nx.all_pairs_node_connectivity(G)
+            for i in self.I:
+                for j in self.I:
+                    if i != j:
+                        f.extend(RP_utils.polynomialize(all_pairs_node_connectivity[i][j] / (params.m-2), params.num_polynomial)) # normalized by m-2 since max nodes needed to disconnect i and j is all nodes but i and j
+
+        # adjacency matrix
         if params.use_adjacency_matrix:
             adjacency = nx.adjacency_matrix(G, nodelist = self.I).todense()
             adjacency = np.multiply(adjacency, adjacency_0)
@@ -115,41 +141,37 @@ class RP_SL_v2():
                     K_list.append(0)
             f.extend(K_list)
 
-        # TODO: missing all the rest of the features
-
         return Variable(torch.from_numpy(np.array(f)).float())
 
     '''
     Tests number of profiles where highest q val action is correct
     '''
-    def test(self, test_data, model, profile_to_E0, profile_to_adjacency0):
+    def test(self, test_data, model):
         num_correct = 0
         for d in test_data:
             profile = d[0]
 
-            E_0 = profile_to_E0[profile]
+            E_0 = self.profile_to_E0[profile]
 
             G = nx.DiGraph()
             G.add_nodes_from(self.I)
-            G.add_edges_from(self.string2edges(d[1], self.I))
+            G.add_edges_from(RP_utils.string2edges(d[1], self.I))
             E = nx.DiGraph()
             E.add_nodes_from(self.I)
 
-            E_edges = self.string2edges(d[2], self.I)
+            E_edges = RP_utils.string2edges(d[2], self.I)
             for e in E_edges:
                 E.add_edge(e[0], e[1], weight=E_0[e[0]][e[1]]['weight'])
 
-            K = self.string2K(d[3])
+            K = RP_utils.string2K(d[3])
 
             actions_optimal = self.data_state_to_actions[d]
-
-            adjacency_0 = profile_to_adjacency0[profile]
 
             # get legal actions at state
             legal_actions = self.get_legal_actions(G, E)
 
             # find max q value action
-            action_Q_vals = model(self.state_features(G, K, E_0, adjacency_0))
+            action_Q_vals = model(self.state_features(G, K, legal_actions, profile))
             max_action = None
             max_action_val = float("-inf")
             for e in legal_actions:
@@ -186,8 +208,15 @@ class RP_SL_v2():
         self.data_state_to_actions = {}
         current_profile = None
 
-        profile_to_adjacency0 = {}
-        profile_to_E0 = {}
+        self.profile_to_adjacency0 = {}
+        self.profile_to_E0 = {}
+        self.profile_to_plurality = {}
+        self.profile_to_borda = {}
+        self.profile_to_copeland = {}
+        self.profile_to_maximin = {}
+        self.profile_to_max_edge_weight = {}
+        self.profile_to_vectorized_wmg = {}
+        self.profile_to_posmat = {}
 
         n = 0
         n2 = 0
@@ -209,18 +238,32 @@ class RP_SL_v2():
                 Profile.importPreflibFile(profile, current_profile)
 
                 wmg = profile.getWmg()
+                profile_matrix = []
+                for p in profile.preferences:
+                    profile_matrix.append(p.getOrderVector())
+                profile_matrix = np.asmatrix(profile_matrix)
 
                 E = nx.DiGraph()
                 E.add_nodes_from(self.I)
+                self.profile_to_max_edge_weight[current_profile] = 0
                 for cand1, cand2 in itertools.permutations(wmg.keys(), 2):
                     if wmg[cand1][cand2] > 0:
                         E.add_edge(cand1, cand2, weight=wmg[cand1][cand2])
+                        self.profile_to_max_edge_weight[current_profile] = max(self.profile_to_max_edge_weight[current_profile], wmg[cand1][cand2])
 
-                profile_to_E0[current_profile] = E.copy()
+                self.profile_to_E0[current_profile] = E.copy()
 
                 adjacency_0 = nx.adjacency_matrix(E, nodelist=self.I).todense()
+                self.profile_to_adjacency0[current_profile] = adjacency_0.copy()
 
-                profile_to_adjacency0[current_profile] = adjacency_0.copy()
+                # compute voting rules scores
+                self.profile_to_plurality[current_profile] = RP_utils.plurality_score(profile_matrix)
+                self.profile_to_borda[current_profile] = RP_utils.borda_score(profile_matrix)
+                self.profile_to_copeland[current_profile] = RP_utils.copeland_score(wmg)
+                self.profile_to_maximin[current_profile] = RP_utils.maximin_score(wmg)
+
+                self.profile_to_vectorized_wmg[current_profile] = RP_utils.vectorize_wmg(wmg)
+                self.profile_to_posmat[current_profile] = RP_utils.profile2posmat(profile_matrix)
 
             if len(line) == 5:
                 # each line in form G E K a[0] a[1]
@@ -253,7 +296,7 @@ class RP_SL_v2():
         test_output_file = open(rpconfig.results_path + str(model_id) + '_SL_test_results.txt', 'w+')
 
         loss_output_file.write("Epoch" + '\t' + "Avg Loss Per State" + '\t' + "Percent Correct" + '\n')
-        test_output_file.write("Epoch" + '\t' + "Percent Correct" + '\n')
+        test_output_file.write("Epoch" + '\t' + "Percent Correct" + '\t' + "Time to Test" + '\n')
         loss_output_file.flush()
         test_output_file.flush()
 
@@ -272,10 +315,12 @@ class RP_SL_v2():
 
             # Test model
             if (epoch % params.SL_test_every == 0 and params.SL_test_at_start):
-                test_results = self.test(test_data, model, profile_to_E0, profile_to_adjacency0)
-                print("Test", epoch, test_results / len(test_data))
+                test_start = time.perf_counter()
+                test_results = self.test(test_data, model)
+                time_to_test = time.perf_counter() - test_start
+                print("Test", epoch, test_results / len(test_data), time_to_test)
                 RP_utils.save_model(model, "SL_" + str(epoch), model_id)
-                test_output_file.write(str(epoch) + '\t' + str(test_results / len(test_data)) + '\n')
+                test_output_file.write(str(epoch) + '\t' + str(test_results / len(test_data)) + '\t' + str(time_to_test) + '\n')
                 test_output_file.flush()
 
             print("--------------------------")
@@ -286,23 +331,21 @@ class RP_SL_v2():
                 d = data[i]
                 profile = d[0]
 
-                E_0 = profile_to_E0[profile]
+                E_0 = self.profile_to_E0[profile]
 
                 G = nx.DiGraph()
                 G.add_nodes_from(self.I)
-                G.add_edges_from(self.string2edges(d[1], self.I))
+                G.add_edges_from(RP_utils.string2edges(d[1], self.I))
                 E = nx.DiGraph()
                 E.add_nodes_from(self.I)
 
-                E_edges = self.string2edges(d[2], self.I)
+                E_edges = RP_utils.string2edges(d[2], self.I)
                 for e in E_edges:
                     E.add_edge(e[0], e[1], weight=E_0[e[0]][e[1]]['weight'])
 
-                K = self.string2K(d[3])
+                K = RP_utils.string2K(d[3])
 
                 actions_optimal = self.data_state_to_actions[d]
-
-                adjacency_0 = profile_to_adjacency0[profile]
 
                 # get legal actions at state
                 legal_actions = self.get_legal_actions(G, E)
@@ -315,7 +358,7 @@ class RP_SL_v2():
                 assert len(legal_actions) > 0
 
                 # find max q value action
-                action_Q_vals = model(self.state_features(G, K, E_0, adjacency_0))
+                action_Q_vals = model(self.state_features(G, K, legal_actions, profile))
                 max_action = None
                 max_action_val = float("-inf")
                 for e in legal_actions:
@@ -351,18 +394,21 @@ class RP_SL_v2():
             # compute avg loss per action
             running_loss = running_loss / params.SL_num_training_data
 
-            loss_output_file.write(str(epoch) + '\t' + str(running_loss) + '\t' + str(num_correct / params.SL_num_training_data) + '\n')
+            time_for_epoch = time.perf_counter() - epoch_start
+            loss_output_file.write(str(epoch) + '\t' + str(running_loss) + '\t' + str(num_correct / params.SL_num_training_data) + '\t' + str(time_for_epoch) + '\n')
             loss_output_file.flush()
             print("Finished epoch", epoch)
             print("avg loss", running_loss)
             print("percent correct", num_correct / params.SL_num_training_data)
-            print("time for epoch", time.perf_counter() - epoch_start)
+            print("time for epoch", time_for_epoch)
 
         # Final test
-        test_results = self.test(test_data, model, profile_to_E0, profile_to_adjacency0)
-        print("Test final", test_results / len(test_data))
+        test_start = time.perf_counter()
+        test_results = self.test(test_data, model)
+        time_to_test = time.perf_counter() - test_start
+        print("Test final", test_results / len(test_data), time_to_test)
         RP_utils.save_model(model, "SL_" + str(params.SL_num_epochs), model_id)
-        test_output_file.write(str(params.SL_num_epochs) + '\t' + str(test_results / len(test_data)) + '\n')
+        test_output_file.write(str(params.SL_num_epochs) + '\t' + str(test_results / len(test_data)) + '\t' + str(time_to_test) + '\n')
         test_output_file.flush()
 
         loss_output_file.close()

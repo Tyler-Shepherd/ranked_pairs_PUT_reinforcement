@@ -4,17 +4,18 @@ import datetime
 # In RP_RL_agent: Loss function
 # In RP_RL_main: What training/test data to use for RL
 # In main: Model architecture
+# In RP_supervised_learning: SL loss function
 
-run_SL = 0
+run_SL = 1
 run_RL = 1
 
 ############## Reinforcement Learning Parameters
 
 # After how many profiles trained to test the model
-test_every = 3500
+test_every = 2500
 
 # Whether or not to test before any training
-test_at_start = 0
+test_at_start = 1
 
 # Whether to shuffle the training data
 shuffle_training_data = 1
@@ -32,7 +33,7 @@ f_train_till_find_all_winners = 1
 f_test_using_PUT_RP = 0
 
 # V2 has model return values for all edges
-f_use_v2 = 0
+f_use_v2 = 1
 
 # Testing v2 tests number of samples to find all winners
 f_use_testing_v2 = 1
@@ -42,8 +43,8 @@ learning_rate = 0.05
 # 1 = decay over all profiles
 # 2 = decay per profile (doesn't work)
 # Note: If using Adam optimizer it doesn't matter
-f_learning_rate_decay = 1
-learning_rate_start = 0.9
+f_learning_rate_decay = 0
+learning_rate_start = 0.2
 learning_rate_end = 0.05
 learning_rate_decay = 2000000
 
@@ -63,7 +64,7 @@ discount_factor = 0.95
 # after how many iterations to update the target network to the agent's learned network
 update_target_network_every = 25
 
-num_training_iterations = 100
+num_training_iterations = 200
 
 # 1 = eps greedy
 # 2 = boltzmann
@@ -88,15 +89,20 @@ num_polynomial = 1
 use_in_out = False # out/in of u,v
 use_total_degree = False
 use_in_out_binary = False # binary out/in of u,v
+use_in_out_matrix = True # in/out of every node
+use_total_degree_matrix = True # total degree of every node
+use_in_out_binary_matrix = True # in/out binary of every node
 use_K = False # u,v in K
 use_voting_rules = False
-use_edge_weight = False
-use_visited = False
+use_voting_rules_matrix = True
+use_edge_weight = True
+use_visited = False # I don't think visited makes sense as a feature when using SL
 use_cycles = False
-use_vectorized_wmg = False
-use_posmat = False
-use_tier_adjacency_matrix = False
+use_vectorized_wmg = True
+use_posmat = True
+use_tier_adjacency_matrix = True # adjacency matrix of just the legal actions
 use_connectivity = False
+use_connectivity_matrix = True
 
 use_adjacency_matrix = True
 use_K_representation = True
@@ -110,10 +116,18 @@ if use_total_degree:
     D_in += num_polynomial * 2
 if use_in_out_binary:
     D_in += 4
+if use_in_out_matrix:
+    D_in += 2 * m * num_polynomial
+if use_total_degree_matrix:
+    D_in += m * num_polynomial
+if use_in_out_binary_matrix:
+    D_in += 2 * m
 if use_K:
     D_in += 2
 if use_voting_rules:
     D_in += num_polynomial * 8
+if use_voting_rules_matrix:
+    D_in += m * 4 * num_polynomial
 if use_edge_weight:
     D_in += num_polynomial
 if use_visited:
@@ -130,12 +144,14 @@ if use_tier_adjacency_matrix:
     D_in += m * m
 if use_connectivity:
     D_in += num_polynomial * 4
+if use_connectivity_matrix:
+    D_in += m * (m - 1) * 2 * num_polynomial
 if use_K_representation:
     D_in += m
 
 D_in = int(D_in)
 
-H1 = 1000  # first hidden dimension
+H1 = 1500  # first hidden dimension
 H2 = 1000  # second hidden dimension
 
 if f_use_v2:
@@ -164,14 +180,14 @@ cutoff_training_iterations = 25000
 
 # Supervised Learning Parameters
 
-SL_test_every = 25
+SL_test_every = 100
 SL_test_at_start = 1
 
 SL_optimal_action_learning_rate = 0.05
 SL_bad_action_learning_rate = 0.005
 
-SL_num_epochs = 100
-SL_num_training_data = 500
+SL_num_epochs = 500
+SL_num_training_data = 1000
 SL_num_test_data = 1000
 
 
@@ -221,8 +237,12 @@ def print_params(parameters_file):
     parameters_file.write("use_in_out\t" + str(use_in_out) + '\n')
     parameters_file.write("use_total_degree\t" + str(use_total_degree) + '\n')
     parameters_file.write("use_in_out_binary\t" + str(use_in_out_binary) + '\n')
+    parameters_file.write("use_in_out_matrix\t" + str(use_in_out_matrix) + '\n')
+    parameters_file.write("use_total_degree_matrix\t" + str(use_total_degree_matrix) + '\n')
+    parameters_file.write("use_in_out_binary_matrix\t" + str(use_in_out_binary_matrix) + '\n')
     parameters_file.write("use_K\t" + str(use_K) + '\n')
     parameters_file.write("use_voting_rules\t" + str(use_voting_rules) + '\n')
+    parameters_file.write("use_voting_rules_matrix\t" + str(use_voting_rules_matrix) + '\n')
     parameters_file.write("use_edge_weight\t" + str(use_edge_weight) + '\n')
     parameters_file.write("use_visited\t" + str(use_visited) + '\n')
     parameters_file.write("use_cycles\t" + str(use_cycles) + '\n')
@@ -230,6 +250,7 @@ def print_params(parameters_file):
     parameters_file.write("use_posmat\t" + str(use_posmat) + '\n')
     parameters_file.write("use_tier_adjacency_matrix\t" + str(use_tier_adjacency_matrix) + '\n')
     parameters_file.write("use_connectivity\t" + str(use_connectivity) + '\n')
+    parameters_file.write("use_connectivity_matrix\t" + str(use_connectivity_matrix) + '\n')
     parameters_file.write("use_adjacency_matrix\t" + str(use_adjacency_matrix) + '\n')
     parameters_file.write("use_K_representation\t" + str(use_K_representation) + '\n')
 

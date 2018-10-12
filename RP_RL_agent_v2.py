@@ -50,122 +50,6 @@ class RP_RL_stats():
         # cycles, visited, adjacency
         self.time_for_features = [0, 0, 0]
 
-# Util functions
-def init_weights(m):
-    if type(m) == torch.nn.Linear:
-        torch.nn.init.xavier_uniform_(m.weight)
-        m.bias.data.fill_(0.01)
-
-def edges2string(edges, I):
-    m = len(I)
-    gstring = list(str(0).zfill(m**2))
-    for e in edges:
-        gstring[(e[0] - min(I))*m + e[1] - min(I)] = '1'
-
-    return ''.join(gstring)
-
-# computes the plurality scores of candidates given an input profile
-# input: profile of preferences as np matrix
-# output: m-vector of plurality scores of candidates, normalized by n
-def plurality_score(profile_matrix):
-    (n,m) = np.shape(profile_matrix)
-    pluralityscores = [0] * m
-    for i in range(n):
-        pluralityscores[profile_matrix[i,0]] += 1
-    pluralityscores_normalized = list(1.*np.array(pluralityscores)/n)
-    return pluralityscores_normalized
-
-#computes the Borda scores of candidates given an input profile
-# input: profile
-# output: m-vector of Borda scores of candidates, normalized by n(m-1)
-def borda_score(profile_matrix):
-    (n,m) = np.shape(profile_matrix)
-    bordascores = [0] * m
-    for i in range(n):
-        for j in range(m):
-            bordascores[profile_matrix[i,j]] += (m - j)
-    bordascores_normalized = list(1.*np.array(bordascores)/(n*(m-1)))
-    return bordascores_normalized
-
-#computes the Copeland scores of candidates
-# input: wmg dict
-# output: m-vector of Copeland scores of candidates, normalized by m-1 to [-1, 1]
-def copeland_score(wmg):
-    m = len(wmg.keys())
-    copelandscores = [0] * m
-    for cand1, cand2 in itertools.permutations(wmg.keys(), 2):
-        if wmg[cand1][cand2] > 0:
-            copelandscores[cand1] += 1
-            copelandscores[cand2] -= 1
-    copelandscores_normalized = list(1.*np.array(copelandscores)/(m-1))
-    return copelandscores_normalized
-
-#computes the Maximin scores of candidates
-# input: wmg dict
-# output: m-vector of Maximin scores of candidates, normalized by n to [-1, 1]
-def maximin_score(wmg):
-    n = len(wmg.keys())
-    maximinscores = [0] * n
-    for cand in wmg.keys():
-        maximinscores[cand] = min(i for (_, i) in wmg[cand].items())
-
-    maximinscores_normalized = list(1.*np.array(maximinscores)/n)
-    return maximinscores_normalized
-
-# just vectorizes the wmg
-# input: wmg
-# output: vectorized weighted majority graph. sorted by candidates, then by opponents,
-#   normalized by no. of voters
-def vectorize_wmg(wmg):
-    m = len(wmg)
-    n = np.sum(np.abs([wmg[0][i] for i in range(1,m)]))
-    wmg_vec = [wmg[i][j] for i in range(m) for j in range(m) if not j == i]
-    wmg_vec_normalized = list(1.*np.array(wmg_vec)/n)
-    return wmg_vec_normalized
-
-
-# creates a positional matrix and vectorizes it
-# input: profile
-# intermediate: positional matrix posmat
-#   posmat[i][j] = # voters ranking candidate i in position j
-# output: vectorized positional matrix, sorted by candidate, then by position,
-#   normalized by no. of voters
-def profile2posmat(profile_matrix):
-    (n,m) = np.shape(profile_matrix)
-    posmat = np.zeros((m,m))
-
-    for i in range(n):
-        vote = profile_matrix[i, :]
-        for pos in range(m):
-            cand = vote[0, pos]
-            posmat[cand][pos] += 1
-    posmat_vec = posmat.flatten()
-    posmat_vec_normalized = list(1.*np.array(posmat_vec)/n)
-    return posmat_vec_normalized
-
-# For node s, avg over all other nodes t of local edge connectivity = num edges needed to remove to disconnect s and t
-def avg_edge_connectivity(G, I, s):
-    total_connectivity = 0
-    for t in I:
-        if t != s:
-            total_connectivity += local_edge_connectivity(G, s, t)
-
-    avg_connectivity = total_connectivity / (len(I) - 1)
-    # TODO: normalize
-    return avg_connectivity
-
-# For node s, avg over all other nodes t of local node connectivity = num nodes needed to remove to disconnect s and t
-def avg_node_connectivity(G, I, s):
-    total_connectivity = 0
-    for t in I:
-        if t != s:
-            total_connectivity += local_node_connectivity(G, s, t)
-
-    avg_connectivity = total_connectivity / (len(I) - 1)
-    # TODO: normalize
-    return avg_connectivity
-
-
 
 class RP_RL_agent_v2():
     def __init__(self, model, learning_rate = 0, loss_output_file = None):
@@ -291,13 +175,13 @@ class RP_RL_agent_v2():
         self.visited = {}
 
         # compute voting rules scores
-        self.plurality_scores = plurality_score(self.profile_matrix)
-        self.borda_scores = borda_score(self.profile_matrix)
-        self.copeland_scores = copeland_score(wmg)
-        self.maximin_scores = maximin_score(wmg)
+        self.plurality_scores = RP_utils.plurality_score(self.profile_matrix)
+        self.borda_scores = RP_utils.borda_score(self.profile_matrix)
+        self.copeland_scores = RP_utils.copeland_score(wmg)
+        self.maximin_scores = RP_utils.maximin_score(wmg)
 
-        self.vectorized_wmg = vectorize_wmg(wmg)
-        self.posmat = profile2posmat(self.profile_matrix)
+        self.vectorized_wmg = RP_utils.vectorize_wmg(wmg)
+        self.posmat = RP_utils.profile2posmat(self.profile_matrix)
         self.adjacency_0 = nx.adjacency_matrix(self.E_0_really, nodelist=self.I).todense()
 
         if params.f_shape_reward:
@@ -404,11 +288,68 @@ class RP_RL_agent_v2():
     def state_features(self):
         f = []
 
+        legal_actions = self.get_legal_actions()
+
+        if params.use_in_out_matrix:
+            out_degree = self.G.out_degree(self.I)
+            for (i,j) in out_degree:
+                f.extend(self.polynomialize(self.safe_div(j, self.E_0.out_degree(i)), params.num_polynomial))
+
+            in_degree = self.G.in_degree(self.I)
+            for (i,j) in in_degree:
+                f.extend(self.polynomialize(self.safe_div(j, self.E_0.in_degree(i)), params.num_polynomial))
+
+        if params.use_total_degree_matrix:
+            for i in self.I:
+                i_total = self.G.out_degree(i) + self.G.in_degree(i)
+                i_e0_total = self.E_0.out_degree(i) + self.E_0.in_degree(i)
+                f.extend(RP_utils.polynomialize(RP_utils.safe_div(i_total, i_e0_total), params.num_polynomial))
+
+        if params.use_in_out_binary_matrix:
+            out_degree = self.G.out_degree(self.I)
+            for (i,j) in out_degree:
+                f.append(2 * int(j > 0) - 1)
+
+            in_degree = self.G.in_degree(self.I)
+            for (i,j) in in_degree:
+                f.append(2 * int(j > 0) - 1)
+
+        if params.use_voting_rules_matrix:
+            for i in self.plurality_scores:
+                f.extend(RP_utils.polynomialize(i, params.num_polynomial))
+            for i in self.borda_scores:
+                f.extend(RP_utils.polynomialize(i, params.num_polynomial))
+            for i in self.copeland_scores:
+                f.extend(RP_utils.polynomialize(i, params.num_polynomial))
+            for i in self.maximin_scores:
+                f.extend(RP_utils.polynomialize(i, params.num_polynomial))
+
+        if params.use_edge_weight:
+            f.extend(RP_utils.polynomialize(self.E_0_really[legal_actions[0][0]][legal_actions[0][1]]['weight'] / self.max_edge_weight, params.num_polynomial))
+
         if params.use_vectorized_wmg:
             f.extend(self.vectorized_wmg)
 
         if params.use_posmat:
             f.extend(self.posmat)
+
+        if params.use_tier_adjacency_matrix:
+            T_matrix = np.zeros((int(params.m), int(params.m)))
+            for (c1,c2) in legal_actions:
+                T_matrix[c1,c2] = 1
+            T_vec = list(T_matrix.flatten())
+            f.extend(T_vec)
+
+        if params.use_connectivity_matrix:
+            for i in self.I:
+                for j in self.I:
+                    if i != j:
+                        f.extend(RP_utils.polynomialize(local_edge_connectivity(self.G, i, j) / (params.m-2), params.num_polynomial)) # normalized by m-2 since max edges needed to disconnect i and j is all edges but i -> i and i -> j
+            all_pairs_node_connectivity = nx.all_pairs_node_connectivity(self.G)
+            for i in self.I:
+                for j in self.I:
+                    if i != j:
+                        f.extend(RP_utils.polynomialize(all_pairs_node_connectivity[i][j] / (params.m-2), params.num_polynomial)) # normalized by m-2 since max nodes needed to disconnect i and j is all nodes but i and j
 
         # adjacency matrix of current state
         if params.use_adjacency_matrix:
@@ -426,15 +367,6 @@ class RP_RL_agent_v2():
                 else:
                     K_list.append(0)
             f.extend(K_list)
-
-        # tier adjacency matrix
-        if params.use_tier_adjacency_matrix:
-            legal_actions = self.get_legal_actions()
-            T = np.zeros((int(params.m), int(params.m)))
-            for (c1,c2) in legal_actions:
-                T[c1,c2] = 1
-            T_vec = list(T.flatten())
-            f.extend(T_vec)
 
         # node2vec every time
         # G_with_weights = nx.DiGraph()
