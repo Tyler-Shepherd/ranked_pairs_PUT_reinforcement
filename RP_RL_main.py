@@ -27,7 +27,7 @@ from PUT_RP_using_model import MechanismRankedPairs
 from PUT_RP_using_model_v2 import MechanismRankedPairs_v2
 
 from RL_base import RL_base
-#from RL_base_experience_replay import RL_base_experience_replay
+from RL_base_experience_replay import RL_base_experience_replay
 from RP_RL_agent import RP_RL_agent
 #from RP_RL_agent_node2vec import RP_RL_agent_node2vec
 from RL_base_v2 import RL_base_v2

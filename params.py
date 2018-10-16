@@ -14,7 +14,7 @@ run_RL = 1
 # After how many profiles trained to test the model
 test_every = 2500
 
-# Whether or not to test before any training
+# Whether or not to test before any RL training
 test_at_start = 1
 
 # Whether to shuffle the training data
@@ -33,12 +33,12 @@ f_train_till_find_all_winners = 1
 f_test_using_PUT_RP = 0
 
 # V2 has model return values for all edges
-f_use_v2 = 1
+f_use_v2 = 0
 
 # Testing v2 tests number of samples to find all winners
 f_use_testing_v2 = 1
 
-learning_rate = 0.05
+learning_rate = 0.1
 # 0 = no decay
 # 1 = decay over all profiles
 # 2 = decay per profile (doesn't work)
@@ -55,14 +55,14 @@ exploration_rate_end = 0.1
 exploration_rate_decay = 600000
 
 # used in boltzmann
-tau_start = 1
-tau_end = 0.1
+tau_start = 0.5
+tau_end = 0.01
 tau_decay = 1500000
 
 discount_factor = 0.95
 
 # after how many iterations to update the target network to the agent's learned network
-update_target_network_every = 25
+update_target_network_every = 3
 
 num_training_iterations = 200
 
@@ -86,23 +86,23 @@ default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pair
 
 # What features to include
 num_polynomial = 1
-use_in_out = False # out/in of u,v
-use_total_degree = False
-use_in_out_binary = False # binary out/in of u,v
-use_in_out_matrix = True # in/out of every node
-use_total_degree_matrix = True # total degree of every node
-use_in_out_binary_matrix = True # in/out binary of every node
-use_K = False # u,v in K
-use_voting_rules = False
-use_voting_rules_matrix = True
+use_in_out = True # out/in of u,v
+use_total_degree = True
+use_in_out_binary = True # binary out/in of u,v
+use_in_out_matrix = False # in/out of every node
+use_total_degree_matrix = False # total degree of every node
+use_in_out_binary_matrix = False # in/out binary of every node
+use_K = True # u,v in K
+use_voting_rules = True
+use_voting_rules_matrix = False
 use_edge_weight = True
 use_visited = False # I don't think visited makes sense as a feature when using SL
 use_cycles = False
 use_vectorized_wmg = True
 use_posmat = True
 use_tier_adjacency_matrix = True # adjacency matrix of just the legal actions
-use_connectivity = False
-use_connectivity_matrix = True
+use_connectivity = True
+use_connectivity_matrix = False
 
 use_adjacency_matrix = True
 use_K_representation = True
@@ -151,8 +151,8 @@ if use_K_representation:
 
 D_in = int(D_in)
 
-H1 = 1500  # first hidden dimension
-H2 = 1000  # second hidden dimension
+H1 = 4096  # first hidden dimension
+H2 = 1024  # second hidden dimension
 
 if f_use_v2:
     D_out = int(m * (m - 1)) # output dimension, values over all actions
@@ -171,12 +171,19 @@ optimizer_algo = 1
 f_shape_reward = 1
 
 # used in testing v2
-tau_for_testing = 0.1
+tau_for_testing = 0.05
 cutoff_testing_iterations = 25000
 
 # if train_till_find_all_winners, stops after this many iterations
 cutoff_training_iterations = 25000
 
+
+# Experience Replay Parameters
+train_from_experiences_every_iterations = 100
+
+buffer_size = 5000
+unusual_sample_factor = 0.9
+batch_size = 500
 
 # Supervised Learning Parameters
 
@@ -260,11 +267,13 @@ def print_params(parameters_file):
     else:
         parameters_file.write("Default Model File\tN/A\n")
     parameters_file.write("Experience Replay\t" + str(f_experience_replay) + '\n')
-    # if f_experience_replay: #TODO
-    #     parameters_file.write("Experience Replay Buffer Size\t" + str(base.buffer_size) + '\n')
-    #     parameters_file.write("Experience Replay Sample Factor\t" + str(base.unusual_sample_factor) + '\n')
-    #     parameters_file.write("Experience Replay Batch Size\t" + str(base.batch_size) + '\n')
-    #     parameters_file.write("Experience Replay Train Every\t" + str(base.train_every_iterations) + '\n')
+    if f_experience_replay:
+        parameters_file.write("Experience Replay Buffer Size\t" + str(buffer_size) + '\n')
+        parameters_file.write("Experience Replay Sample Factor\t" + str(unusual_sample_factor) + '\n')
+        parameters_file.write("Experience Replay Batch Size\t" + str(batch_size) + '\n')
+        parameters_file.write("Experience Replay Train Every\t" + str(train_from_experiences_every_iterations) + '\n')
+    else:
+        parameters_file.write("print_loss_every\t" + str(print_loss_every) + '\n')
     parameters_file.write("Update Target Network Every\t" + str(update_target_network_every) + '\n')
     if not f_test_using_PUT_RP and not f_use_testing_v2:
         parameters_file.write("Num Test Iterations\t" + str(num_test_iterations) + '\n')

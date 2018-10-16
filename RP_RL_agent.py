@@ -671,13 +671,36 @@ class RP_RL_agent():
         return self.known_winners, times_discovered, num_iters_to_find_all_winners
 
     def get_current_state(self):
-        return [self.G.copy(), self.E.copy(), self.K.copy()]
+        other_vars = []
+        other_vars.append(self.E_0.copy())
+        other_vars.append(copy.deepcopy(self.plurality_scores))
+        other_vars.append(copy.deepcopy(self.borda_scores))
+        other_vars.append(copy.deepcopy(self.copeland_scores))
+        other_vars.append(copy.deepcopy(self.maximin_scores))
+        other_vars.append(copy.deepcopy(self.vectorized_wmg))
+        other_vars.append(copy.deepcopy(self.posmat))
+        other_vars.append(copy.deepcopy(self.adjacency_0))
+        other_vars.append(self.E_0_really.copy())
+        other_vars.append(copy.deepcopy(self.max_edge_weight))
+
+        return [self.G.copy(), self.E.copy(), self.K.copy(), other_vars]
 
     def set_state(self, new_state):
-        # new_state is of form [G, E, K]
+        # new_state is of form [G, E, K, other_vars] (same as get_state)
         self.G = new_state[0]
         self.E = new_state[1]
         self.K = new_state[2]
+        other_vars = new_state[3]
+        self.E_0 = other_vars[0]
+        self.plurality_scores = other_vars[1]
+        self.borda_scores = other_vars[2]
+        self.copeland_scores = other_vars[3]
+        self.maximin_scores = other_vars[4]
+        self.vectorized_wmg = other_vars[5]
+        self.posmat = other_vars[6]
+        self.adjacency_0 = other_vars[7]
+        self.E_0_really = other_vars[8]
+        self.max_edge_weight = other_vars[9]
 
     def safe_div(self, num, denom):
         if denom == 0:
