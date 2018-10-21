@@ -173,10 +173,10 @@ class RP_RL():
         os.chdir(rpconfig.path)
 
         # 14k m10n10
-        filenames_file = open(rpconfig.filename_profiles, 'r')
-        filenames = [i.strip('\n') for i in filenames_file]
-        train_filenames = filenames[:10000] + filenames[11000:]
-        test_filenames = filenames[10000:11000]  # the 1000 profiles we used in the paper
+        # filenames_file = open(rpconfig.filename_profiles, 'r')
+        # filenames = [i.strip('\n') for i in filenames_file]
+        # train_filenames = filenames[:10000] + filenames[11000:]
+        # test_filenames = filenames[10000:11000]  # the 1000 profiles we used in the paper
 
         # m10n10
         # filenames = sorted(glob.glob('M10N10-*.csv'))
@@ -188,9 +188,9 @@ class RP_RL():
         # test_filenames = ['4circle.soc']
 
         # m50n50
-        # filenames = sorted(glob.glob('M50N50-*.csv'))
-        # train_filenames = filenames[0:1]
-        # test_filenames = filenames[0:100]
+        filenames = sorted(glob.glob('M50N50-*.csv'))
+        train_filenames = filenames[0:1]
+        test_filenames = filenames[0:1000]
 
         # Open files for output
         output_filename = str(model_id) + "_RL_training_results.txt"
@@ -291,7 +291,7 @@ class RP_RL():
 
                 num_times_tested += 1
 
-            if i % 500 == 0:
+            if i % 50 == 0:
                 RP_utils.save_model(model, "RL_" + str(i), model_id)
 
             profile = read_profile(inputfile)

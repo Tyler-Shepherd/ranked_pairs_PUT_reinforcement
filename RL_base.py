@@ -153,7 +153,10 @@ class RL_base():
                 prev_winners = agent.known_winners.copy()
 
         for iter in range(params.num_training_iterations):
-            self.learning_iteration(agent, iter_to_find_winner=iter_to_find_winner)
+            if params.f_train_till_find_all_winners:
+                self.learning_iteration(agent, iter_to_find_winner=iter_to_find_winner)
+            else:
+                self.learning_iteration(agent)
 
             # if params.f_learning_rate_decay == 2:
             #     # from http://www.cs.cmu.edu/afs/andrew/course/15/381-f08/www/lectures/HandoutModelFreeRL.pdf

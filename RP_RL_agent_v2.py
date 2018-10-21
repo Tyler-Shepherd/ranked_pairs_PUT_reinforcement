@@ -175,14 +175,20 @@ class RP_RL_agent_v2():
         self.visited = {}
 
         # compute voting rules scores
-        self.plurality_scores = RP_utils.plurality_score(self.profile_matrix)
-        self.borda_scores = RP_utils.borda_score(self.profile_matrix)
-        self.copeland_scores = RP_utils.copeland_score(wmg)
-        self.maximin_scores = RP_utils.maximin_score(wmg)
+        if params.use_voting_rules_matrix:
+            self.plurality_scores = RP_utils.plurality_score(self.profile_matrix)
+            self.borda_scores = RP_utils.borda_score(self.profile_matrix)
+            self.copeland_scores = RP_utils.copeland_score(wmg)
+            self.maximin_scores = RP_utils.maximin_score(wmg)
 
-        self.vectorized_wmg = RP_utils.vectorize_wmg(wmg)
-        self.posmat = RP_utils.profile2posmat(self.profile_matrix)
-        self.adjacency_0 = nx.adjacency_matrix(self.E_0_really, nodelist=self.I).todense()
+        if params.use_vectorized_wmg:
+            self.vectorized_wmg = RP_utils.vectorize_wmg(wmg)
+
+        if params.use_posmat:
+            self.posmat = RP_utils.profile2posmat(self.profile_matrix)
+
+        if params.use_adjacency_matrix:
+            self.adjacency_0 = nx.adjacency_matrix(self.E_0_really, nodelist=self.I).todense()
 
         if params.f_shape_reward:
             self.winners_visited = {}
@@ -391,13 +397,16 @@ class RP_RL_agent_v2():
         return Variable(torch.from_numpy(np.array(f)).float())
         # return Variable(torch.from_numpy(node2vec_f).float())
 
-    def get_Q_vals(self, use_target_net=False):
+    def get_Q_vals(self, use_target_net=False, return_vec=False):
         state_features = self.state_features()
 
         if use_target_net:
             q_vals_vector = self.target_model(state_features)
         else:
             q_vals_vector = self.model(state_features)
+
+        if return_vec:
+            return q_vals_vector
 
         q_vals_dict = {}
         for i in range(params.D_out):
@@ -502,7 +511,7 @@ class RP_RL_agent_v2():
             reward_val =  0
         elif current_state == 2:
             # Pruning state
-            reward_val = -1
+            reward_val = 0
         else:
             # Found a new winner
             if params.f_shape_reward:
@@ -577,26 +586,18 @@ class RP_RL_agent_v2():
         print("model saved")
 
 
-    # TODO
     def test_model(self, test_env):
-        print("base test_model not implemented for v2")
-        sys.exit(0)
-
         self.initialize(test_env)
 
-        times_discovered = []
+        times_discovered = {}
         num_iters_to_find_all_winners = 0
 
         # Sample using model greedily
         # Test with fixed number of iterations
         with torch.no_grad():
-            for iter in range(num_iterations):
-            # Test till found all winners
-            # while self.known_winners != true_winners:
+            for iter in range(params.num_test_iterations):
                 self.reset_environment()
                 self.K = frozenset(self.known_winners)
-
-                # print(self.known_winners, true_winners)
 
                 num_iters_to_find_all_winners += 1
 
@@ -610,31 +611,28 @@ class RP_RL_agent_v2():
                     # for random action selection testing
                     # max_action = legal_actions[random.randint(0, len(legal_actions) - 1)]
 
-                    max_action = None
-                    max_action_val = float("-inf")
+                    # Boltzmann
+                    action_Q_vals = self.get_Q_vals()
+                    q_vals_boltz = []
+
                     for e in legal_actions:
-                        action_val = self.get_Q_val(e)
+                        q_vals_boltz.append(exp(action_Q_vals[e].item() / params.tau_for_testing))
+                    q_sum = sum(q_vals_boltz)
+                    probs = []
+                    for v in q_vals_boltz:
+                        probs.append(v / q_sum)
+                    legal_actions_index = [i for i in range(len(legal_actions))]
+                    selected_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
 
-                        if action_val > max_action_val:
-                            max_action = e
-                            max_action_val = action_val
+                    assert (selected_action is not None)
 
-                    assert (max_action is not None)
-
-                    self.make_move(max_action, f_testing = True)
+                    self.make_move(selected_action, f_testing = True)
 
                 # At goal state
                 new_winners = self.goal_state_update()
 
                 for c in new_winners:
-                    times_discovered.append(iter)
-
-        # print("done:", num_iters_to_find_all_winners)
-        # print("time to make move", time_to_make_move)
-        # print("time for actions", time_for_actions)
-        # print("time for legal actions", time_for_legal_actions)
-        # print("time for rest", time_for_reset)
-        # print("time for state str", self.time_for_state_str)
+                    times_discovered[c] = iter
 
         return self.known_winners, times_discovered, num_iters_to_find_all_winners
 
@@ -658,7 +656,6 @@ class RP_RL_agent_v2():
 
                 num_iters_to_find_all_winners += 1
 
-                # TODO
                 while self.at_goal_state()[0] == -1:
                     legal_actions = self.get_legal_actions()
 

@@ -34,6 +34,14 @@ class RL_base_v2():
 
         self.num_profiles = num_profiles
 
+        self.edge_to_index = {}
+        c = 0
+        for i in range(int(params.m)):
+            for j in range(int(params.m)):
+                if i != j:
+                    self.edge_to_index[(i,j)] = c
+                    c += 1
+
 
     '''
     Performs one iteration of learning
@@ -157,7 +165,10 @@ class RL_base_v2():
                 prev_winners = agent.known_winners.copy()
 
         for iter in range(params.num_training_iterations):
-            self.learning_iteration(agent, iter_to_find_winner=iter_to_find_winner)
+            if params.f_train_till_find_all_winners:
+                self.learning_iteration(agent, iter_to_find_winner=iter_to_find_winner)
+            else:
+                self.learning_iteration(agent)
 
             # if self.f_learning_rate_decay == 2:
             #     # from http://www.cs.cmu.edu/afs/andrew/course/15/381-f08/www/lectures/HandoutModelFreeRL.pdf
@@ -182,9 +193,7 @@ class RL_base_v2():
         # and old_q_value is computed using the model network, which gets the Variable correctly
         # and creates the gradient operation graph
 
-        action_Q_vals = agent.get_Q_vals()
-
-        old_q_value = action_Q_vals[a]
+        old_q_vals = agent.get_Q_vals(return_vec=True)
 
         # Actually updates the agent state
         agent.make_move(a)
@@ -200,12 +209,15 @@ class RL_base_v2():
             # If there are no legal next actions, then we've reached a goal state
             # Estimate of next state is just 0 (since there is no next state)
             max_next_q_val = 0
-
-        action_next_Q_vals = agent.get_Q_vals(use_target_net=True)
-
-        for e in next_legal_actions:
-            max_next_q_val = max(max_next_q_val, action_next_Q_vals[e])
+        else:
+            action_next_Q_vals = agent.get_Q_vals(use_target_net=True)
+            for e in next_legal_actions:
+                max_next_q_val = max(max_next_q_val, action_next_Q_vals[e])
 
         new_q_value = new_reward + params.discount_factor * max_next_q_val
 
-        agent.update_q(self.learning_rate, old_q_value, new_q_value)
+        # Update just the q val of the action taken
+        new_q_vals = old_q_vals.detach().clone()
+        new_q_vals[self.edge_to_index[a]] = new_q_value
+
+        agent.update_q(self.learning_rate, old_q_vals, new_q_vals)

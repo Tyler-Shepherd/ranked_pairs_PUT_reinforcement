@@ -27,18 +27,18 @@ num_test_iterations = 10
 # Whether to use experience replay
 f_experience_replay = 0
 
-f_train_till_find_all_winners = 1
+f_train_till_find_all_winners = 0
 
 # Uses PUT_RP_using_model
 f_test_using_PUT_RP = 0
 
 # V2 has model return values for all edges
-f_use_v2 = 0
+f_use_v2 = 1
 
 # Testing v2 tests number of samples to find all winners
-f_use_testing_v2 = 1
+f_use_testing_v2 = 0
 
-learning_rate = 0.1
+learning_rate = 0.02
 # 0 = no decay
 # 1 = decay over all profiles
 # 2 = decay per profile (doesn't work)
@@ -62,7 +62,7 @@ tau_decay = 1500000
 discount_factor = 0.95
 
 # after how many iterations to update the target network to the agent's learned network
-update_target_network_every = 3
+update_target_network_every = 25
 
 num_training_iterations = 200
 
@@ -86,25 +86,25 @@ default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pair
 
 # What features to include
 num_polynomial = 1
-use_in_out = True # out/in of u,v
-use_total_degree = True
-use_in_out_binary = True # binary out/in of u,v
-use_in_out_matrix = False # in/out of every node
+use_in_out = False # out/in of u,v
+use_total_degree = False
+use_in_out_binary = False # binary out/in of u,v
+use_in_out_matrix = True # in/out of every node
 use_total_degree_matrix = False # total degree of every node
 use_in_out_binary_matrix = False # in/out binary of every node
-use_K = True # u,v in K
-use_voting_rules = True
+use_K = False # u,v in K
+use_voting_rules = False
 use_voting_rules_matrix = False
-use_edge_weight = True
+use_edge_weight = False
 use_visited = False # I don't think visited makes sense as a feature when using SL
 use_cycles = False
-use_vectorized_wmg = True
-use_posmat = True
-use_tier_adjacency_matrix = True # adjacency matrix of just the legal actions
-use_connectivity = True
-use_connectivity_matrix = False
+use_vectorized_wmg = False
+use_posmat = False
+use_tier_adjacency_matrix = False # adjacency matrix of just the legal actions
+use_connectivity = False # takes forever to compute, don't use it
+use_connectivity_matrix = False # takes forever to compute, don't use it
 
-use_adjacency_matrix = True
+use_adjacency_matrix = False
 use_K_representation = True
 
 
@@ -152,7 +152,7 @@ if use_K_representation:
 D_in = int(D_in)
 
 H1 = 4096  # first hidden dimension
-H2 = 1024  # second hidden dimension
+H2 = 2048  # second hidden dimension
 
 if f_use_v2:
     D_out = int(m * (m - 1)) # output dimension, values over all actions
@@ -165,10 +165,11 @@ print_loss_every = 10000
 
 # 1 = gradient descent
 # 2 = adam
+# 3 = stochastic gradient descent (pytorch optimizer)
 optimizer_algo = 1
 
 # Whether to shape reward by num times winner found
-f_shape_reward = 1
+f_shape_reward = 0
 
 # used in testing v2
 tau_for_testing = 0.05
@@ -240,6 +241,7 @@ def print_params(parameters_file):
     parameters_file.write("Agent H2\t" + str(H2) + '\n')
     parameters_file.write("Agent D_out\t" + str(D_out) + '\n')
     parameters_file.write("Num Polynomial Features\t" + str(num_polynomial) + '\n')
+    parameters_file.write("test_every\t" + str(test_every) + '\n')
 
     parameters_file.write("use_in_out\t" + str(use_in_out) + '\n')
     parameters_file.write("use_total_degree\t" + str(use_total_degree) + '\n')
@@ -284,8 +286,8 @@ def print_params(parameters_file):
     parameters_file.write("Use V2\t" + str(f_use_v2) + '\n')
     parameters_file.write("Shape Reward\t" + str(f_shape_reward) + '\n')
     parameters_file.write("Use Testing V2\t" + str(f_use_testing_v2) + '\n')
+    parameters_file.write("Tau for Testing\t" + str(tau_for_testing) + '\n')
     if f_use_testing_v2:
-        parameters_file.write("Tau for Testing\t" + str(tau_for_testing) + '\n')
         parameters_file.write("cutoff_testing_iterations\t" + str(cutoff_testing_iterations) + '\n')
 
     parameters_file.write("SL test every\t" + str(SL_test_every) + '\n')

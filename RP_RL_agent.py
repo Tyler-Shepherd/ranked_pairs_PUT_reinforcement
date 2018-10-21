@@ -39,6 +39,8 @@ class RP_RL_stats():
         # loss over each profile
         self.running_loss = 0
 
+        self.time_for_connectivity = 0
+
 
 class RP_RL_agent():
     def __init__(self, model, learning_rate = 0, loss_output_file = None):
@@ -69,6 +71,8 @@ class RP_RL_agent():
 
         if params.optimizer_algo == 2:
             self.optimizer = torch.optim.Adam(self.model.parameters(), lr=learning_rate)
+        elif params.optimizer_algo == 3:
+            self.optimizer = torch.optim.SGD(self.model.parameters(), lr=learning_rate)
 
         self.visited = {}
 
@@ -98,10 +102,11 @@ class RP_RL_agent():
         self.I = list(wmg.keys())
 
         # save profile as matrix for use in features
-        profile_matrix = []
-        for p in env0.preferences:
-            profile_matrix.append(p.getOrderVector())
-        self.profile_matrix = np.asmatrix(profile_matrix)
+        if params.use_voting_rules or params.use_posmat:
+            profile_matrix = []
+            for p in env0.preferences:
+                profile_matrix.append(p.getOrderVector())
+            self.profile_matrix = np.asmatrix(profile_matrix)
 
         self.G_0 = nx.DiGraph()
         self.G_0.add_nodes_from(self.I)
@@ -158,14 +163,20 @@ class RP_RL_agent():
         self.visited = {}
 
         # compute voting rules scores
-        self.plurality_scores = RP_utils.plurality_score(self.profile_matrix)
-        self.borda_scores = RP_utils.borda_score(self.profile_matrix)
-        self.copeland_scores = RP_utils.copeland_score(wmg)
-        self.maximin_scores = RP_utils.maximin_score(wmg)
+        if params.use_voting_rules:
+            self.plurality_scores = RP_utils.plurality_score(self.profile_matrix)
+            self.borda_scores = RP_utils.borda_score(self.profile_matrix)
+            self.copeland_scores = RP_utils.copeland_score(wmg)
+            self.maximin_scores = RP_utils.maximin_score(wmg)
 
-        self.vectorized_wmg = RP_utils.vectorize_wmg(wmg)
-        self.posmat = RP_utils.profile2posmat(self.profile_matrix)
-        self.adjacency_0 = nx.adjacency_matrix(self.E_0_really, nodelist=self.I).todense()
+        if params.use_vectorized_wmg:
+            self.vectorized_wmg = RP_utils.vectorize_wmg(wmg)
+
+        if params.use_posmat:
+            self.posmat = RP_utils.profile2posmat(self.profile_matrix)
+
+        if params.use_adjacency_matrix:
+            self.adjacency_0 = nx.adjacency_matrix(self.E_0_really, nodelist=self.I).todense()
 
         if params.f_shape_reward:
             self.winners_visited = {}
@@ -363,10 +374,12 @@ class RP_RL_agent():
 
         # edge and node connectivity
         if params.use_connectivity:
+            start_connect = time.perf_counter()
             f.extend(self.polynomialize(RP_utils.avg_edge_connectivity(self.G, self.I, u), params.num_polynomial))
             f.extend(self.polynomialize(RP_utils.avg_edge_connectivity(self.G, self.I, v), params.num_polynomial))
             f.extend(self.polynomialize(RP_utils.avg_node_connectivity(self.G, self.I, u), params.num_polynomial))
             f.extend(self.polynomialize(RP_utils.avg_node_connectivity(self.G, self.I, v), params.num_polynomial))
+            self.stats.time_for_connectivity += (time.perf_counter() - start_connect)
 
         # node2vec every time
         # G_with_weights = nx.DiGraph()
@@ -495,7 +508,7 @@ class RP_RL_agent():
             reward_val =  0
         elif current_state == 2:
             # Pruning state
-            reward_val = -1
+            reward_val = 0
         else:
             # Found a new winner
             if params.f_shape_reward:
@@ -545,8 +558,8 @@ class RP_RL_agent():
             with torch.no_grad():
                 for param in self.model.parameters():
                     param -= learning_rate * param.grad
-        elif params.optimizer_algo == 2:
-            # Adam
+        else:
+            # Adam or any other optimizer
 
             # Before the backward pass, use the optimizer object to zero all of the
             # gradients for the variables it will update (which are the learnable
@@ -573,7 +586,7 @@ class RP_RL_agent():
     def test_model(self, test_env):
         self.initialize(test_env)
 
-        times_discovered = []
+        times_discovered = {}
         num_iters_to_find_all_winners = 0
 
         # Sample using model greedily
@@ -595,14 +608,43 @@ class RP_RL_agent():
                     # for random action selection testing
                     # max_action = legal_actions[random.randint(0, len(legal_actions) - 1)]
 
-                    max_action = None
-                    max_action_val = float("-inf")
-                    for e in legal_actions:
-                        action_val = self.get_Q_val(e)
+                    # pure greedy
+                    # max_action = None
+                    # max_action_val = float("-inf")
+                    # for e in legal_actions:
+                    #     action_val = self.get_Q_val(e)
+                    #
+                    #     if action_val > max_action_val:
+                    #         max_action = e
+                    #         max_action_val = action_val
+                    #
 
-                        if action_val > max_action_val:
-                            max_action = e
-                            max_action_val = action_val
+                    # Boltzmann q
+                    q_vals = []
+                    for e in legal_actions:
+                        q_vals.append(exp(self.get_Q_val(e).item() / params.tau_for_testing))
+                    q_sum = sum(q_vals)
+                    probs = []
+                    for v in q_vals:
+                        probs.append(v / q_sum)
+                    legal_actions_index = [i for i in range(len(legal_actions))]
+                    max_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
+
+                    # Boltzmann LPwinners
+                    # priorities = []
+                    # for e in legal_actions:
+                    #     Gc = self.G.copy()
+                    #     Gc.add_edges_from([e])
+                    #     G_in_degree = Gc.in_degree(self.I)
+                    #     potential_winners = set([x[0] for x in G_in_degree if x[1] == 0])
+                    #     priority = len(potential_winners - self.known_winners)
+                    #     priorities.append(exp(priority / params.tau_for_testing))
+                    # q_sum = sum(priorities)
+                    # probs = []
+                    # for v in priorities:
+                    #     probs.append(v / q_sum)
+                    # legal_actions_index = [i for i in range(len(legal_actions))]
+                    # max_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
 
                     assert (max_action is not None)
 
@@ -612,7 +654,7 @@ class RP_RL_agent():
                 new_winners = self.goal_state_update()
 
                 for c in new_winners:
-                    times_discovered.append(iter)
+                    times_discovered[c] = iter
 
         return self.known_winners, times_discovered, num_iters_to_find_all_winners
 
@@ -647,6 +689,22 @@ class RP_RL_agent():
                     # for random action selection testing
                     # selected_action = legal_actions[random.randint(0, len(legal_actions) - 1)]
 
+                    # LPwinners (w/ Boltzmann)
+                    # priorities = []
+                    # for e in legal_actions:
+                    #     Gc = self.G.copy()
+                    #     Gc.add_edges_from([e])
+                    #     G_in_degree = Gc.in_degree(self.I)
+                    #     potential_winners = set([x[0] for x in G_in_degree if x[1] == 0])
+                    #     priority = len(potential_winners - self.known_winners)
+                    #     priorities.append(exp(priority / params.tau_for_testing))
+                    # q_sum = sum(priorities)
+                    # probs = []
+                    # for v in priorities:
+                    #     probs.append(v / q_sum)
+                    # legal_actions_index = [i for i in range(len(legal_actions))]
+                    # selected_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
+
                     # Boltzmann
                     q_vals = []
                     for e in legal_actions:
@@ -673,13 +731,32 @@ class RP_RL_agent():
     def get_current_state(self):
         other_vars = []
         other_vars.append(self.E_0.copy())
-        other_vars.append(copy.deepcopy(self.plurality_scores))
-        other_vars.append(copy.deepcopy(self.borda_scores))
-        other_vars.append(copy.deepcopy(self.copeland_scores))
-        other_vars.append(copy.deepcopy(self.maximin_scores))
-        other_vars.append(copy.deepcopy(self.vectorized_wmg))
-        other_vars.append(copy.deepcopy(self.posmat))
-        other_vars.append(copy.deepcopy(self.adjacency_0))
+        if params.use_voting_rules:
+            other_vars.append(copy.deepcopy(self.plurality_scores))
+            other_vars.append(copy.deepcopy(self.borda_scores))
+            other_vars.append(copy.deepcopy(self.copeland_scores))
+            other_vars.append(copy.deepcopy(self.maximin_scores))
+        else:
+            other_vars.append(None)
+            other_vars.append(None)
+            other_vars.append(None)
+            other_vars.append(None)
+
+        if params.use_vectorized_wmg:
+            other_vars.append(copy.deepcopy(self.vectorized_wmg))
+        else:
+            other_vars.append(None)
+
+        if params.use_posmat:
+            other_vars.append(copy.deepcopy(self.posmat))
+        else:
+            other_vars.append(None)
+
+        if params.use_adjacency_matrix:
+            other_vars.append(copy.deepcopy(self.adjacency_0))
+        else:
+            other_vars.append(None)
+
         other_vars.append(self.E_0_really.copy())
         other_vars.append(copy.deepcopy(self.max_edge_weight))
 
