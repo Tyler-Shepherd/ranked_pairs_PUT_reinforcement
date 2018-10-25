@@ -6,19 +6,19 @@ import datetime
 # In main: Model architecture
 # In RP_supervised_learning: SL loss function
 
-run_SL = 1
+run_SL = 0
 run_RL = 1
 
 ############## Reinforcement Learning Parameters
 
 # After how many profiles trained to test the model
-test_every = 2500
+test_every = 100000
 
 # Whether or not to test before any RL training
-test_at_start = 1
+test_at_start = 0
 
 # Whether to shuffle the training data
-shuffle_training_data = 1
+shuffle_training_data = 0
 
 # Number of iterations to use when testing
 # Doesn't matter if using test_till_find_all_winners or testing_v2
@@ -27,16 +27,16 @@ num_test_iterations = 10
 # Whether to use experience replay
 f_experience_replay = 0
 
-f_train_till_find_all_winners = 0
+f_train_till_find_all_winners = 1
 
 # Uses PUT_RP_using_model
 f_test_using_PUT_RP = 0
 
 # V2 has model return values for all edges
-f_use_v2 = 1
+f_use_v2 = 0
 
 # Testing v2 tests number of samples to find all winners
-f_use_testing_v2 = 0
+f_use_testing_v2 = 1
 
 learning_rate = 0.02
 # 0 = no decay
@@ -79,20 +79,20 @@ n = 10.0
 ################## Model Parameters
 
 # Whether to initialize model from default values (for comparison purposes)
-f_start_from_default = 0
+f_start_from_default = 1
 
 # Path to default model (used only if f_start_from_default)
 default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\10-3\\results_RP_RL_main161490381_model.pth.tar"
 
 # What features to include
 num_polynomial = 1
-use_in_out = False # out/in of u,v
+use_in_out = True # out/in of u,v
 use_total_degree = False
 use_in_out_binary = False # binary out/in of u,v
-use_in_out_matrix = True # in/out of every node
+use_in_out_matrix = False # in/out of every node
 use_total_degree_matrix = False # total degree of every node
 use_in_out_binary_matrix = False # in/out binary of every node
-use_K = False # u,v in K
+use_K = True # u,v in K
 use_voting_rules = False
 use_voting_rules_matrix = False
 use_edge_weight = False
@@ -105,7 +105,7 @@ use_connectivity = False # takes forever to compute, don't use it
 use_connectivity_matrix = False # takes forever to compute, don't use it
 
 use_adjacency_matrix = False
-use_K_representation = True
+use_K_representation = False
 
 
 # Compute D_in from features used
@@ -151,8 +151,8 @@ if use_K_representation:
 
 D_in = int(D_in)
 
-H1 = 4096  # first hidden dimension
-H2 = 2048  # second hidden dimension
+H1 = 1000  # first hidden dimension
+H2 = 1000  # second hidden dimension
 
 if f_use_v2:
     D_out = int(m * (m - 1)) # output dimension, values over all actions
@@ -172,7 +172,7 @@ optimizer_algo = 1
 f_shape_reward = 0
 
 # used in testing v2
-tau_for_testing = 0.05
+tau_for_testing = 0.1
 cutoff_testing_iterations = 25000
 
 # if train_till_find_all_winners, stops after this many iterations

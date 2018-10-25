@@ -620,31 +620,31 @@ class RP_RL_agent():
                     #
 
                     # Boltzmann q
-                    q_vals = []
-                    for e in legal_actions:
-                        q_vals.append(exp(self.get_Q_val(e).item() / params.tau_for_testing))
-                    q_sum = sum(q_vals)
-                    probs = []
-                    for v in q_vals:
-                        probs.append(v / q_sum)
-                    legal_actions_index = [i for i in range(len(legal_actions))]
-                    max_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
-
-                    # Boltzmann LPwinners
-                    # priorities = []
+                    # q_vals = []
                     # for e in legal_actions:
-                    #     Gc = self.G.copy()
-                    #     Gc.add_edges_from([e])
-                    #     G_in_degree = Gc.in_degree(self.I)
-                    #     potential_winners = set([x[0] for x in G_in_degree if x[1] == 0])
-                    #     priority = len(potential_winners - self.known_winners)
-                    #     priorities.append(exp(priority / params.tau_for_testing))
-                    # q_sum = sum(priorities)
+                    #     q_vals.append(exp(self.get_Q_val(e).item() / params.tau_for_testing))
+                    # q_sum = sum(q_vals)
                     # probs = []
-                    # for v in priorities:
+                    # for v in q_vals:
                     #     probs.append(v / q_sum)
                     # legal_actions_index = [i for i in range(len(legal_actions))]
                     # max_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
+
+                    # Boltzmann LPwinners
+                    priorities = []
+                    for e in legal_actions:
+                        Gc = self.G.copy()
+                        Gc.add_edges_from([e])
+                        G_in_degree = Gc.in_degree(self.I)
+                        potential_winners = set([x[0] for x in G_in_degree if x[1] == 0])
+                        priority = len(potential_winners - self.known_winners)
+                        priorities.append(exp(priority / params.tau_for_testing))
+                    q_sum = sum(priorities)
+                    probs = []
+                    for v in priorities:
+                        probs.append(v / q_sum)
+                    legal_actions_index = [i for i in range(len(legal_actions))]
+                    max_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
 
                     assert (max_action is not None)
 
