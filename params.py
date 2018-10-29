@@ -12,7 +12,7 @@ run_RL = 1
 ############## Reinforcement Learning Parameters
 
 # After how many profiles trained to test the model
-test_every = 100000
+test_every = 10000000
 
 # Whether or not to test before any RL training
 test_at_start = 0
@@ -27,7 +27,9 @@ num_test_iterations = 10
 # Whether to use experience replay
 f_experience_replay = 0
 
-f_train_till_find_all_winners = 1
+f_train_till_find_all_winners = 0
+
+f_use_winners_distribution = 0
 
 # Uses PUT_RP_using_model
 f_test_using_PUT_RP = 0
@@ -38,14 +40,14 @@ f_use_v2 = 0
 # Testing v2 tests number of samples to find all winners
 f_use_testing_v2 = 1
 
-learning_rate = 0.02
+learning_rate = 0.05
 # 0 = no decay
 # 1 = decay over all profiles
 # 2 = decay per profile (doesn't work)
 # Note: If using Adam optimizer it doesn't matter
-f_learning_rate_decay = 0
-learning_rate_start = 0.2
-learning_rate_end = 0.05
+f_learning_rate_decay = 1
+learning_rate_start = 0.8
+learning_rate_end = 0.01
 learning_rate_decay = 2000000
 
 exploration_rate = 0.4
@@ -55,8 +57,8 @@ exploration_rate_end = 0.1
 exploration_rate_decay = 600000
 
 # used in boltzmann
-tau_start = 0.5
-tau_end = 0.01
+tau_start = 1.0
+tau_end = 0.05
 tau_decay = 1500000
 
 discount_factor = 0.95
@@ -79,14 +81,14 @@ n = 10.0
 ################## Model Parameters
 
 # Whether to initialize model from default values (for comparison purposes)
-f_start_from_default = 1
+f_start_from_default = 0
 
 # Path to default model (used only if f_start_from_default)
 default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\10-3\\results_RP_RL_main161490381_model.pth.tar"
 
 # What features to include
 num_polynomial = 1
-use_in_out = True # out/in of u,v
+use_in_out = False # out/in of u,v
 use_total_degree = False
 use_in_out_binary = False # binary out/in of u,v
 use_in_out_matrix = False # in/out of every node
@@ -161,7 +163,7 @@ else:
 
 
 # After how many nodes to output summed loss
-print_loss_every = 10000
+print_loss_every = 1000
 
 # 1 = gradient descent
 # 2 = adam
@@ -173,7 +175,7 @@ f_shape_reward = 0
 
 # used in testing v2
 tau_for_testing = 0.1
-cutoff_testing_iterations = 25000
+cutoff_testing_iterations = 1000
 
 # if train_till_find_all_winners, stops after this many iterations
 cutoff_training_iterations = 25000

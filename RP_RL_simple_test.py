@@ -38,31 +38,44 @@ if __name__ == '__main__':
     # profile = read_profile("4circle.soc")
     profile = read_profile("10circle.soc")
     # profile = read_profile("M10N10-100000.csv")
+    #
+    # model = torch.nn.Sequential(
+    #     torch.nn.Linear(params.D_in, params.H1),
+    #     torch.nn.Sigmoid(),
+    #     torch.nn.Linear(params.H1, params.H2),
+    #     torch.nn.Sigmoid(),
+    #     torch.nn.Linear(params.H2, params.H2),
+    #     torch.nn.Sigmoid(),
+    #     torch.nn.Linear(params.H2, params.H2),
+    #     torch.nn.Sigmoid(),
+    #     torch.nn.Linear(params.H2, params.H2),
+    #     torch.nn.Sigmoid(),
+    #     torch.nn.Linear(params.H2, params.H2),
+    #     torch.nn.Sigmoid(),
+    #     torch.nn.Linear(params.H2, params.H2),
+    #     torch.nn.Sigmoid(),
+    #     torch.nn.Linear(params.H2, params.D_out),
+    #     torch.nn.Softmax(dim=0)
+    # )
+
+    # model = torch.nn.Sequential(
+    #     torch.nn.Linear(6, 1000),
+    #     torch.nn.Sigmoid(),
+    #     torch.nn.Linear(1000, 1000),
+    #     torch.nn.Sigmoid(),
+    #     torch.nn.Linear(1000, 1)
+    # )
 
     model = torch.nn.Sequential(
-        torch.nn.Linear(params.D_in, params.H1),
-        torch.nn.Sigmoid(),
-        torch.nn.Linear(params.H1, params.H2),
-        torch.nn.Sigmoid(),
-        torch.nn.Linear(params.H2, params.H2),
-        torch.nn.Sigmoid(),
-        torch.nn.Linear(params.H2, params.H2),
-        torch.nn.Sigmoid(),
-        torch.nn.Linear(params.H2, params.H2),
-        torch.nn.Sigmoid(),
-        torch.nn.Linear(params.H2, params.H2),
-        torch.nn.Sigmoid(),
-        torch.nn.Linear(params.H2, params.H2),
-        torch.nn.Sigmoid(),
-        torch.nn.Linear(params.H2, params.D_out),
-        torch.nn.Softmax(dim=0)
+        torch.nn.Linear(params.D_in, params.D_out)
     )
-    RP_utils.load_model(model, "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\10-18\\748794065_RL_1000_model.pth.tar")
 
-    # RP_utils.print_feature_weights(model)
+    RP_utils.load_model(model, "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\10-26\\716142162_RL_test_5_model.pth.tar")
 
-    # agent = RP_RL_agent(model)
-    agent = RP_RL_agent_v2(model)
+    RP_utils.print_feature_weights(model)
+
+    agent = RP_RL_agent(model)
+    # agent = RP_RL_agent_v2(model)
 
     agent.initialize(profile)
     agent.reset_environment()
@@ -71,39 +84,16 @@ if __name__ == '__main__':
 
     # print("********* START *************")
     #
-    # while agent.at_goal_state()[0] == -1:
-    #
-    #     legal_actions = agent.get_legal_actions()
-    #
-    #     # Find best action
-    #     max_action = None
-    #     max_action_val = float("-inf")
-    #     print("\nlegal actions:")
-    #     for e in legal_actions:
-    #         action_Q_val = agent.get_Q_val(e)
-    #         print(e, action_Q_val)
-    #         if action_Q_val > max_action_val:
-    #             max_action = e
-    #             max_action_val = action_Q_val
-    #
-    #     print("Max action", max_action)
-    #
-    #     agent.make_move(max_action)
-
-    # v2
-
     while agent.at_goal_state()[0] == -1:
 
         legal_actions = agent.get_legal_actions()
-
-        state_q_vals = agent.get_Q_vals()
 
         # Find best action
         max_action = None
         max_action_val = float("-inf")
         print("\nlegal actions:")
         for e in legal_actions:
-            action_Q_val = state_q_vals[e]
+            action_Q_val = agent.get_Q_val(e)
             print(e, action_Q_val)
             if action_Q_val > max_action_val:
                 max_action = e
@@ -112,5 +102,28 @@ if __name__ == '__main__':
         print("Max action", max_action)
 
         agent.make_move(max_action)
+
+    # v2
+
+    # while agent.at_goal_state()[0] == -1:
+    #
+    #     legal_actions = agent.get_legal_actions()
+    #
+    #     state_q_vals = agent.get_Q_vals()
+    #
+    #     # Find best action
+    #     max_action = None
+    #     max_action_val = float("-inf")
+    #     print("\nlegal actions:")
+    #     for e in legal_actions:
+    #         action_Q_val = state_q_vals[e]
+    #         print(e, action_Q_val)
+    #         if action_Q_val > max_action_val:
+    #             max_action = e
+    #             max_action_val = action_Q_val
+    #
+    #     print("Max action", max_action)
+    #
+    #     agent.make_move(max_action)
 
 

@@ -41,6 +41,8 @@ class RP_RL_stats():
 
         self.time_for_connectivity = 0
 
+        self.num_iters_reset_skipped = 0
+
 
 class RP_RL_agent():
     def __init__(self, model, learning_rate = 0, loss_output_file = None):
@@ -188,14 +190,27 @@ class RP_RL_agent():
     Does not reset the visited set
     Randomly initializes K from known_winners - if iter_to_find_winner supplied, uses that to determine probability of including each winner
     '''
-    def reset_environment(self, iter_to_find_winner = None):
+    def reset_environment(self, iter_to_find_winner = None, winners_distribution = None):
         self.G = self.G_0.copy()
         self.E = self.E_0.copy()
 
         # Randomly initialize known winners
         self.K = set()
 
-        if iter_to_find_winner is not None:
+        if winners_distribution is not None:
+            total_iters = 1000
+            true_winners = winners_distribution.keys()
+            probs = []
+            for a in true_winners:
+                prob_of_adding = winners_distribution[a] / (total_iters + 1)
+                probs.append(prob_of_adding)
+                if random.random() < prob_of_adding:
+                    self.K.add(a)
+            if true_winners == self.K:
+                # pointless to train if K is already the true winners set
+                self.stats.num_iters_reset_skipped += 1
+                return -1
+        elif iter_to_find_winner is not None:
             max_num_iters = max(i for i in iter_to_find_winner.values())
             for a in self.known_winners:
                 if random.random() > (1 - iter_to_find_winner[a] / (max_num_iters + 1)):
@@ -208,6 +223,8 @@ class RP_RL_agent():
 
         if params.use_visited:
             self.update_visited()
+
+        return 0
 
     '''
     Returns -1 if not at goal state
