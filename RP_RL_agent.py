@@ -183,6 +183,12 @@ class RP_RL_agent():
         if params.f_shape_reward:
             self.winners_visited = {}
 
+        if params.use_betweenness_centrality:
+            # should be O(n^3)
+            # only takes 0.016 seconds on m50
+            # http://www.algo.uni-konstanz.de/publications/b-fabc-01.pdf
+            self.betweenness_centralities = nx.betweenness_centrality(self.E_0_really, normalized=True)
+
         self.stats = RP_RL_stats()
 
     '''
@@ -306,6 +312,12 @@ class RP_RL_agent():
 
         # out/in degree
         if params.use_in_out:
+            f.extend(self.polynomialize(self.G.out_degree(u) / params.m, params.num_polynomial))
+            f.extend(self.polynomialize(self.G.in_degree(u) / params.m, params.num_polynomial))
+            f.extend(self.polynomialize(self.G.out_degree(v) / params.m, params.num_polynomial))
+            f.extend(self.polynomialize(self.G.in_degree(v) / params.m, params.num_polynomial))
+
+        if params.use_in_out_relative:
             f.extend(self.polynomialize(self.safe_div(self.G.out_degree(u), self.E_0.out_degree(u)), params.num_polynomial))
             f.extend(self.polynomialize(self.safe_div(self.G.in_degree(u), self.E_0.in_degree(u)), params.num_polynomial))
             f.extend(self.polynomialize(self.safe_div(self.G.out_degree(v), self.E_0.out_degree(v)), params.num_polynomial))
@@ -327,6 +339,10 @@ class RP_RL_agent():
         if params.use_K:
             f.append(2 * int(u in self.K) - 1)
             f.append(2 * int(v in self.K) - 1)
+
+        if params.use_K_big:
+            f.append(int(u in self.K) * 100)
+            f.append(int(v in self.K) * 100)
 
         # voting rules scores
         if params.use_voting_rules:
@@ -397,6 +413,10 @@ class RP_RL_agent():
             f.extend(self.polynomialize(RP_utils.avg_node_connectivity(self.G, self.I, u), params.num_polynomial))
             f.extend(self.polynomialize(RP_utils.avg_node_connectivity(self.G, self.I, v), params.num_polynomial))
             self.stats.time_for_connectivity += (time.perf_counter() - start_connect)
+
+        if params.use_betweenness_centrality:
+            f.extend(self.polynomialize(self.betweenness_centralities[u], params.num_polynomial))
+            f.extend(self.polynomialize(self.betweenness_centralities[v], params.num_polynomial))
 
         # node2vec every time
         # G_with_weights = nx.DiGraph()
@@ -525,7 +545,7 @@ class RP_RL_agent():
             reward_val =  0
         elif current_state == 2:
             # Pruning state
-            reward_val = 0
+            reward_val = -1
         else:
             # Found a new winner
             if params.f_shape_reward:
@@ -600,10 +620,11 @@ class RP_RL_agent():
         print("model saved")
 
 
-    def test_model(self, test_env):
+    def test_model(self, test_env, begin_time = 0):
         self.initialize(test_env)
 
         times_discovered = {}
+        runtimes_discovered = {}
         num_iters_to_find_all_winners = 0
 
         # Sample using model greedily
@@ -637,31 +658,33 @@ class RP_RL_agent():
                     #
 
                     # Boltzmann q
-                    # q_vals = []
-                    # for e in legal_actions:
-                    #     q_vals.append(exp(self.get_Q_val(e).item() / params.tau_for_testing))
-                    # q_sum = sum(q_vals)
-                    # probs = []
-                    # for v in q_vals:
-                    #     probs.append(v / q_sum)
-                    # legal_actions_index = [i for i in range(len(legal_actions))]
-                    # max_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
+                    if not params.test_with_LP:
+                        q_vals = []
+                        for e in legal_actions:
+                            q_vals.append(exp(self.get_Q_val(e).item() / params.tau_for_testing))
+                        q_sum = sum(q_vals)
+                        probs = []
+                        for v in q_vals:
+                            probs.append(v / q_sum)
+                        legal_actions_index = [i for i in range(len(legal_actions))]
+                        max_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
 
                     # Boltzmann LPwinners
-                    priorities = []
-                    for e in legal_actions:
-                        Gc = self.G.copy()
-                        Gc.add_edges_from([e])
-                        G_in_degree = Gc.in_degree(self.I)
-                        potential_winners = set([x[0] for x in G_in_degree if x[1] == 0])
-                        priority = len(potential_winners - self.known_winners)
-                        priorities.append(exp(priority / params.tau_for_testing))
-                    q_sum = sum(priorities)
-                    probs = []
-                    for v in priorities:
-                        probs.append(v / q_sum)
-                    legal_actions_index = [i for i in range(len(legal_actions))]
-                    max_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
+                    if params.test_with_LP:
+                        priorities = []
+                        for e in legal_actions:
+                            Gc = self.G.copy()
+                            Gc.add_edges_from([e])
+                            G_in_degree = Gc.in_degree(self.I)
+                            potential_winners = set([x[0] for x in G_in_degree if x[1] == 0])
+                            priority = len(potential_winners - self.known_winners)
+                            priorities.append(exp(priority / params.tau_for_testing))
+                        q_sum = sum(priorities)
+                        probs = []
+                        for v in priorities:
+                            probs.append(v / q_sum)
+                        legal_actions_index = [i for i in range(len(legal_actions))]
+                        max_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
 
                     assert (max_action is not None)
 
@@ -671,9 +694,10 @@ class RP_RL_agent():
                 new_winners = self.goal_state_update()
 
                 for c in new_winners:
+                    runtimes_discovered[c] = time.perf_counter() - begin_time
                     times_discovered[c] = iter
 
-        return self.known_winners, times_discovered, num_iters_to_find_all_winners
+        return self.known_winners, times_discovered, num_iters_to_find_all_winners, runtimes_discovered
 
 
     # tests "how many samples to find all winners"
@@ -707,31 +731,33 @@ class RP_RL_agent():
                     # selected_action = legal_actions[random.randint(0, len(legal_actions) - 1)]
 
                     # LPwinners (w/ Boltzmann)
-                    # priorities = []
-                    # for e in legal_actions:
-                    #     Gc = self.G.copy()
-                    #     Gc.add_edges_from([e])
-                    #     G_in_degree = Gc.in_degree(self.I)
-                    #     potential_winners = set([x[0] for x in G_in_degree if x[1] == 0])
-                    #     priority = len(potential_winners - self.known_winners)
-                    #     priorities.append(exp(priority / params.tau_for_testing))
-                    # q_sum = sum(priorities)
-                    # probs = []
-                    # for v in priorities:
-                    #     probs.append(v / q_sum)
-                    # legal_actions_index = [i for i in range(len(legal_actions))]
-                    # selected_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
+                    if params.test_with_LP:
+                        priorities = []
+                        for e in legal_actions:
+                            Gc = self.G.copy()
+                            Gc.add_edges_from([e])
+                            G_in_degree = Gc.in_degree(self.I)
+                            potential_winners = set([x[0] for x in G_in_degree if x[1] == 0])
+                            priority = len(potential_winners - self.known_winners)
+                            priorities.append(exp(priority / params.tau_for_testing))
+                        q_sum = sum(priorities)
+                        probs = []
+                        for v in priorities:
+                            probs.append(v / q_sum)
+                        legal_actions_index = [i for i in range(len(legal_actions))]
+                        selected_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
 
                     # Boltzmann
-                    q_vals = []
-                    for e in legal_actions:
-                        q_vals.append(exp(self.get_Q_val(e).item() / params.tau_for_testing))
-                    q_sum = sum(q_vals)
-                    probs = []
-                    for v in q_vals:
-                        probs.append(v / q_sum)
-                    legal_actions_index = [i for i in range(len(legal_actions))]
-                    selected_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
+                    else:
+                        q_vals = []
+                        for e in legal_actions:
+                            q_vals.append(exp(self.get_Q_val(e).item() / params.tau_for_testing))
+                        q_sum = sum(q_vals)
+                        probs = []
+                        for v in q_vals:
+                            probs.append(v / q_sum)
+                        legal_actions_index = [i for i in range(len(legal_actions))]
+                        selected_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
 
                     assert selected_action is not None
 

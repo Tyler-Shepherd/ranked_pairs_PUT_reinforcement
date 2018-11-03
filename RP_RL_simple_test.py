@@ -58,19 +58,17 @@ if __name__ == '__main__':
     #     torch.nn.Softmax(dim=0)
     # )
 
-    # model = torch.nn.Sequential(
-    #     torch.nn.Linear(6, 1000),
-    #     torch.nn.Sigmoid(),
-    #     torch.nn.Linear(1000, 1000),
-    #     torch.nn.Sigmoid(),
-    #     torch.nn.Linear(1000, 1)
-    # )
-
     model = torch.nn.Sequential(
-        torch.nn.Linear(params.D_in, params.D_out)
+        torch.nn.Linear(params.D_in, params.H1),
+        torch.nn.Sigmoid(),
+        torch.nn.Linear(params.H1, params.D_out)
     )
 
-    RP_utils.load_model(model, "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\10-26\\716142162_RL_test_5_model.pth.tar")
+    # model = torch.nn.Sequential(
+    #     torch.nn.Linear(params.D_in, params.D_out)
+    # )
+
+    RP_utils.load_model(model, "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pairs\\RL\\results\\11-1\\737081992_RL_test_final_0_model.pth.tar")
 
     RP_utils.print_feature_weights(model)
 

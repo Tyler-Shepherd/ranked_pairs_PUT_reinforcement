@@ -58,12 +58,11 @@ if __name__ == '__main__':
         if params.optimizer_algo == 3:
             print("Stochastic gradient descent not implemented for v2")
             sys.exit(0)
-        if params.f_use_winners_distribution:
-            print("Winners distribution not done for v2")
-            sys.exit(0)
     else:
         model = torch.nn.Sequential(
-            torch.nn.Linear(params.D_in, params.D_out)
+            torch.nn.Linear(params.D_in, params.H1),
+            torch.nn.Sigmoid(),
+            torch.nn.Linear(params.H1, params.D_out)
         )
         if params.use_in_out_matrix or params.use_total_degree_matrix or params.use_in_out_binary_matrix or params.use_voting_rules_matrix or params.use_connectivity_matrix:
             print("Features not implemented for v1")
@@ -74,10 +73,6 @@ if __name__ == '__main__':
 
     if params.f_experience_replay and (params.use_visited or params.use_cycles):
         print('Features not implemented for experience replay')
-        sys.exit(0)
-
-    if not params.f_use_testing_v2:
-        print('No other testing but v2 implemented with validation testing')
         sys.exit(0)
 
     print("Model:")

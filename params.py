@@ -9,16 +9,20 @@ import datetime
 run_SL = 0
 run_RL = 1
 
+test_with_LP = 0
+test_10x = 0
+
 ############## Reinforcement Learning Parameters
 
 # After how many profiles trained to test the model
-test_every = 10000000
+# Runs test on validation data
+test_every = 1000
 
 # Whether or not to test before any RL training
 test_at_start = 0
 
 # Whether to shuffle the training data
-shuffle_training_data = 0
+shuffle_training_data = 1
 
 # Number of iterations to use when testing
 # Doesn't matter if using test_till_find_all_winners or testing_v2
@@ -29,25 +33,25 @@ f_experience_replay = 0
 
 f_train_till_find_all_winners = 0
 
-f_use_winners_distribution = 0
+f_use_winners_distribution = 1
 
 # Uses PUT_RP_using_model
 f_test_using_PUT_RP = 0
 
 # V2 has model return values for all edges
-f_use_v2 = 0
+f_use_v2 = 1
 
 # Testing v2 tests number of samples to find all winners
 f_use_testing_v2 = 1
 
-learning_rate = 0.05
+learning_rate = 0.00001
 # 0 = no decay
 # 1 = decay over all profiles
 # 2 = decay per profile (doesn't work)
 # Note: If using Adam optimizer it doesn't matter
-f_learning_rate_decay = 1
-learning_rate_start = 0.8
-learning_rate_end = 0.01
+f_learning_rate_decay = 0
+learning_rate_start = 0.9
+learning_rate_end = 0.00001
 learning_rate_decay = 2000000
 
 exploration_rate = 0.4
@@ -59,12 +63,12 @@ exploration_rate_decay = 600000
 # used in boltzmann
 tau_start = 1.0
 tau_end = 0.05
-tau_decay = 1500000
+tau_decay = 1000000
 
 discount_factor = 0.95
 
 # after how many iterations to update the target network to the agent's learned network
-update_target_network_every = 25
+update_target_network_every = 1
 
 num_training_iterations = 200
 
@@ -89,12 +93,14 @@ default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pair
 # What features to include
 num_polynomial = 1
 use_in_out = False # out/in of u,v
+use_in_out_relative = False
 use_total_degree = False
 use_in_out_binary = False # binary out/in of u,v
-use_in_out_matrix = False # in/out of every node
+use_in_out_matrix = True # in/out of every node
 use_total_degree_matrix = False # total degree of every node
 use_in_out_binary_matrix = False # in/out binary of every node
-use_K = True # u,v in K
+use_K = False # u,v in K
+use_K_big = False
 use_voting_rules = False
 use_voting_rules_matrix = False
 use_edge_weight = False
@@ -107,13 +113,16 @@ use_connectivity = False # takes forever to compute, don't use it
 use_connectivity_matrix = False # takes forever to compute, don't use it
 
 use_adjacency_matrix = False
-use_K_representation = False
+use_K_representation = True
+use_betweenness_centrality = False
 
 
 # Compute D_in from features used
 D_in = 0
 if use_in_out:
-    D_in += num_polynomial * 4
+    D_in += 4
+if use_in_out_relative:
+    D_in += 4 * num_polynomial
 if use_total_degree:
     D_in += num_polynomial * 2
 if use_in_out_binary:
@@ -150,11 +159,13 @@ if use_connectivity_matrix:
     D_in += m * (m - 1) * 2 * num_polynomial
 if use_K_representation:
     D_in += m
+if use_betweenness_centrality:
+    D_in += 2 * num_polynomial
 
 D_in = int(D_in)
 
-H1 = 1000  # first hidden dimension
-H2 = 1000  # second hidden dimension
+H1 = 32  # first hidden dimension
+H2 = 32  # second hidden dimension
 
 if f_use_v2:
     D_out = int(m * (m - 1)) # output dimension, values over all actions
@@ -163,7 +174,7 @@ else:
 
 
 # After how many nodes to output summed loss
-print_loss_every = 1000
+print_loss_every = 10000
 
 # 1 = gradient descent
 # 2 = adam
@@ -174,7 +185,7 @@ optimizer_algo = 1
 f_shape_reward = 0
 
 # used in testing v2
-tau_for_testing = 0.1
+tau_for_testing = 0.05
 cutoff_testing_iterations = 1000
 
 # if train_till_find_all_winners, stops after this many iterations
@@ -193,12 +204,12 @@ batch_size = 500
 SL_test_every = 100
 SL_test_at_start = 1
 
-SL_optimal_action_learning_rate = 0.05
-SL_bad_action_learning_rate = 0.005
+SL_optimal_action_learning_rate = 0.0001
+SL_bad_action_learning_rate = 0.0001
 
-SL_num_epochs = 500
+SL_num_epochs = 200
 SL_num_training_data = 1000
-SL_num_test_data = 1000
+SL_num_test_data = 100
 
 
 
@@ -244,14 +255,17 @@ def print_params(parameters_file):
     parameters_file.write("Agent D_out\t" + str(D_out) + '\n')
     parameters_file.write("Num Polynomial Features\t" + str(num_polynomial) + '\n')
     parameters_file.write("test_every\t" + str(test_every) + '\n')
+    parameters_file.write("f_use_winners_distribution\t" + str(f_use_winners_distribution) + '\n')
 
     parameters_file.write("use_in_out\t" + str(use_in_out) + '\n')
+    parameters_file.write("use_in_out_relative\t" + str(use_in_out_relative) + '\n')
     parameters_file.write("use_total_degree\t" + str(use_total_degree) + '\n')
     parameters_file.write("use_in_out_binary\t" + str(use_in_out_binary) + '\n')
     parameters_file.write("use_in_out_matrix\t" + str(use_in_out_matrix) + '\n')
     parameters_file.write("use_total_degree_matrix\t" + str(use_total_degree_matrix) + '\n')
     parameters_file.write("use_in_out_binary_matrix\t" + str(use_in_out_binary_matrix) + '\n')
     parameters_file.write("use_K\t" + str(use_K) + '\n')
+    parameters_file.write("use_K_big\t" + str(use_K_big) + '\n')
     parameters_file.write("use_voting_rules\t" + str(use_voting_rules) + '\n')
     parameters_file.write("use_voting_rules_matrix\t" + str(use_voting_rules_matrix) + '\n')
     parameters_file.write("use_edge_weight\t" + str(use_edge_weight) + '\n')
@@ -264,6 +278,7 @@ def print_params(parameters_file):
     parameters_file.write("use_connectivity_matrix\t" + str(use_connectivity_matrix) + '\n')
     parameters_file.write("use_adjacency_matrix\t" + str(use_adjacency_matrix) + '\n')
     parameters_file.write("use_K_representation\t" + str(use_K_representation) + '\n')
+    parameters_file.write("use_betweenness_centrality\t" + str(use_betweenness_centrality) + '\n')
 
     parameters_file.write("Agent Optimizer Algo\t" + str(optimizer_algo) + '\n')
     if f_start_from_default:

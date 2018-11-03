@@ -32,7 +32,7 @@ class RL_base():
 
         self.num_profiles = num_profiles
 
-        self.distribution_output_file = open('winners_distribution.txt', 'w+')
+        # self.distribution_output_file = open('winners_distribution_' + str(random.randint(0,100000000)) + '.txt', 'w+')
 
     '''
     Performs one iteration of learning
@@ -137,48 +137,47 @@ class RL_base():
         agent.initialize(env0)
 
         iter_to_find_all_winners = 0
-
         iter_to_find_winner = {}
         prev_winners = set()
 
         # for getting winners distribution data
-        start = time.perf_counter()
-        winner_to_num_times_found = {}
-        while iter_to_find_all_winners < 1000:
-            assert agent.known_winners < true_winners
-
-            agent.reset_environment()
-            agent.K = frozenset()
-
-            # While not reached goal state
-            while agent.at_goal_state()[0] == -1:
-                legal_actions = agent.get_legal_actions()
-                a = legal_actions[random.randint(0, len(legal_actions) - 1)]
-                agent.make_move(a, f_testing = True)
-
-            current_state, possible_winners = agent.at_goal_state(update_stats=0)
-
-            assert current_state == 1 or current_state == 3
-
-            for c in possible_winners:
-                if c not in winner_to_num_times_found:
-                    winner_to_num_times_found[c] = 0
-                winner_to_num_times_found[c] += 1
-
-            iter_to_find_all_winners += 1
-
-        print(filename, winner_to_num_times_found)
-        self.distribution_output_file.write(str(filename) + '\n')
-        for c in true_winners:
-            if c in winner_to_num_times_found:
-                self.distribution_output_file.write(str(c) + '\t' + str(winner_to_num_times_found[c]) + '\n')
-            else:
-                self.distribution_output_file.write(str(c) + '\t' + str(0) + '\n')
-
-        self.distribution_output_file.flush()
-        print(time.perf_counter() - start)
-
-        return agent, 0, 0
+        # start = time.perf_counter()
+        # winner_to_num_times_found = {}
+        # while iter_to_find_all_winners < 1000:
+        #     assert agent.known_winners < true_winners
+        #
+        #     agent.reset_environment()
+        #     agent.K = frozenset()
+        #
+        #     # While not reached goal state
+        #     while agent.at_goal_state()[0] == -1:
+        #         legal_actions = agent.get_legal_actions()
+        #         a = legal_actions[random.randint(0, len(legal_actions) - 1)]
+        #         agent.make_move(a, f_testing = True)
+        #
+        #     current_state, possible_winners = agent.at_goal_state(update_stats=0)
+        #
+        #     assert current_state == 1 or current_state == 3
+        #
+        #     for c in possible_winners:
+        #         if c not in winner_to_num_times_found:
+        #             winner_to_num_times_found[c] = 0
+        #         winner_to_num_times_found[c] += 1
+        #
+        #     iter_to_find_all_winners += 1
+        #
+        # print(filename, winner_to_num_times_found)
+        # self.distribution_output_file.write(str(filename) + '\n')
+        # for c in true_winners:
+        #     if c in winner_to_num_times_found:
+        #         self.distribution_output_file.write(str(c) + '\t' + str(winner_to_num_times_found[c]) + '\n')
+        #     else:
+        #         self.distribution_output_file.write(str(c) + '\t' + str(0) + '\n')
+        #
+        # self.distribution_output_file.flush()
+        # print(time.perf_counter() - start)
+        #
+        # return agent, 0, 0
 
         if params.f_train_till_find_all_winners:
             while agent.known_winners != true_winners and iter_to_find_all_winners < params.cutoff_training_iterations:

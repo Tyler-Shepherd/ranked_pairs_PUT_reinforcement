@@ -49,9 +49,11 @@ class RL_base_v2():
     If full_K is 1 then sets agents K to be known_winners (used when training to find all winners)
     iter_to_find_winner is, if defined, a dict of winner to number of iterations needed to discover that winner
     '''
-    def learning_iteration(self, agent, full_K = 0, iter_to_find_winner = None):
+    def learning_iteration(self, agent, full_K = 0, iter_to_find_winner = None, winners_distribution = None):
         # Reset environment
-        agent.reset_environment(iter_to_find_winner = iter_to_find_winner)
+        reset_success = agent.reset_environment(iter_to_find_winner = iter_to_find_winner, winners_distribution = winners_distribution)
+        if reset_success == -1:
+            return
 
         if full_K:
             agent.K = frozenset(agent.known_winners)
@@ -141,7 +143,7 @@ class RL_base_v2():
     env0 is the data given for initializing the environment (i.e. a profile)
     f_train_until_found_all_winners: if true, will continue training until all winners are found (specified by true_winners) then do num_training_iterations
     '''
-    def reinforcement_loop(self, agent, env0, f_train_until_found_all_winners = 0, true_winners = set()):
+    def reinforcement_loop(self, agent, env0, true_winners = set(), winners_distribution = None):
         # Initialize
         agent.initialize(env0)
 
@@ -149,7 +151,7 @@ class RL_base_v2():
         iter_to_find_winner = {}
         prev_winners = set()
 
-        if f_train_until_found_all_winners:
+        if params.f_train_till_find_all_winners:
             while agent.known_winners != true_winners and iter_to_find_all_winners < params.cutoff_training_iterations:
                 assert agent.known_winners < true_winners
 
@@ -165,7 +167,9 @@ class RL_base_v2():
                 prev_winners = agent.known_winners.copy()
 
         for iter in range(params.num_training_iterations):
-            if params.f_train_till_find_all_winners:
+            if params.f_use_winners_distribution:
+                self.learning_iteration(agent, winners_distribution = winners_distribution)
+            elif params.f_train_till_find_all_winners:
                 self.learning_iteration(agent, iter_to_find_winner=iter_to_find_winner)
             else:
                 self.learning_iteration(agent)

@@ -139,7 +139,10 @@ def test_model(test_output_file, test_output_summary_file, agent, test_filenames
     for test_inputfile in test_filenames:
         test_profile = read_profile(test_inputfile)
 
-        winners = set(true_winners[j])
+        if params.f_use_testing_v2:
+            winners = set(true_winners[j])
+        else:
+            winners = set()
 
         start_file = time.perf_counter()
         if params.f_use_testing_v2:
@@ -179,12 +182,19 @@ class RP_RL():
         filenames = [i.strip('\n') for i in filenames_file]
         train_filenames = filenames[:10000] + filenames[12000:]
         test_filenames = filenames[10000:11000]  # the same 1000 profiles we used in the paper
-        validation_filenames = filenames[11000:12000]
+        validation_filenames = filenames[11000:11500]
 
         # m10n10
         # filenames = sorted(glob.glob('M10N10-*.csv'))
         # train_filenames = filenames[0:80000]
         # test_filenames = filenames[80000:100000]
+
+        # m20n20
+        # filenames_file = open(rpconfig.filename_profiles, 'r')
+        # filenames = [i.strip('\n') for i in filenames_file]
+        # train_filenames = filenames[:1] #+ filenames[12000:]
+        # test_filenames = filenames[:1]
+        # validation_filenames = filenames # all available m20n20
 
         # debugging
         # train_filenames = ['meh']
@@ -194,6 +204,45 @@ class RP_RL():
         # filenames = sorted(glob.glob('M50N50-*.csv'))
         # train_filenames = filenames[0:1]
         # test_filenames = filenames[0:1000]
+
+        # m40n40
+        # filenames = sorted(glob.glob('M40N40-*.csv'))
+        # train_filenames = filenames[0:1]
+        # test_filenames = filenames[0:1000]
+
+        # m50n50
+        # filenames_file = open(rpconfig.filename_profiles, 'r')
+        # filenames = [i.strip('\n') for i in filenames_file]
+        # train_filenames = filenames[0:1]
+        # test_filenames = filenames[0:1]
+        # validation_filenames = filenames
+
+        # Read true winners
+        os.chdir(rpconfig.winners_path)
+        true_winners = []
+        winners_file = open("./winners_14k.txt", 'r')
+        # winners_file = open("./winners_m20n20.txt", 'r')
+        for line in winners_file:
+            winners = []
+            line = line.replace('[', '')
+            line = line.replace(']', '')
+            line = line.replace(' ', '')
+            line = line.replace('\n', '')
+            line = line.split(',')
+            for c in line:
+                winners.append(int(c))
+            true_winners.append(winners)
+        os.chdir(rpconfig.path)
+
+        # Split true_winners into train and test
+        true_winners_train = true_winners[:10000] + true_winners[12000:]
+        true_winners_test = true_winners[10000:11000]
+        true_winners_val = true_winners[11000:11500]
+
+        # m20n20
+        # true_winners_train = true_winners[:1]
+        # true_winners_test = true_winners[:1]
+        # true_winners_val = true_winners
 
         # Open files for output
         output_filename = str(model_id) + "_RL_training_results.txt"
@@ -246,55 +295,20 @@ class RP_RL():
         loss_file.write('Num Nodes' + '\t' + 'Loss Per Node' + '\n')
         loss_file.flush()
 
-        # Read true winners
-        os.chdir(rpconfig.winners_path)
-        true_winners = []
-        winners_file = open("./winners_14k.txt", 'r')
-        for line in winners_file:
-            winners = []
-            for c in line:
-                if c == '[' or c == ',' or c == ' ' or c == ']' or c == '\n':
-                    continue
-                winners.append(int(c))
-            true_winners.append(winners)
-        os.chdir(rpconfig.path)
-
-        # Split true_winners into train and test
-        true_winners_train = true_winners[:10000] + true_winners[12000:]
-        true_winners_test = true_winners[10000:11000]
-        true_winners_val = true_winners[11000:12000]
-
-        # winners_distribution_file = open(rpconfig.winners_distribution_filename, 'r')
-        # current_winners = []
-        # file_count = 0
-        # for line in winners_distribution_file:
-        #     line = line.strip('\n')
-        #     line = line.split('\t')
-        #     if line[0][0] == '*':
-        #         if current_winners != true_winners_train[file_count]:
-        #             print(train_filenames[file_count], current_winners, true_winners_train[file_count])
-        #         file_count += 1
-        #         current_winners = []
-        #         continue
-        #     current_winners.append(int(line[0]))
-        #
-        # sys.exit(0)
-
         # Open winner distribution file
         if params.f_use_winners_distribution:
             winners_distribution_file = open(rpconfig.winners_distribution_filename, 'r')
             winners_distribution = {}
-            file_count = 0
             for line in winners_distribution_file:
                 line = line.strip('\n')
                 line = line.split('\t')
-                if line[0][0] == '*':
-                    file_count += 1
+                if len(line) == 1:
+                    current_file = line[0]
                     continue
-                associated_training_filename = train_filenames[file_count]
-                if associated_training_filename not in winners_distribution:
-                    winners_distribution[associated_training_filename] = {}
-                winners_distribution[associated_training_filename][int(line[0])] = int(line[1])
+                if current_file not in winners_distribution:
+                    winners_distribution[current_file] = {}
+                winners_distribution[current_file][int(line[0])] = int(line[1])
+            winners_distribution_file.close()
 
         # Shuffle training data
         if params.shuffle_training_data:
@@ -328,9 +342,14 @@ class RP_RL():
 
         val_results = []
 
+        if params.test_10x:
+            print("********** testing 10x *******************")
+            assert params.f_start_from_default or params.test_with_LP
+            for t in range(10):
+                test_model(test_output_file, test_output_summary_file, agent, test_filenames, true_winners_test, model_id, "final_" + str(t))
+
         for inputfile in train_filenames:
             # Test model
-            # for t in range(10):
             if i % params.test_every == 0 and (params.test_at_start or i != 0):
                 if params.f_test_using_PUT_RP:
                     test_model_using_PUT_RP(test_output_file, agent, test_filenames, model_id, num_times_tested)
@@ -340,7 +359,7 @@ class RP_RL():
 
                 num_times_tested += 1
 
-            if i % 50 == 0:
+            if i % 500 == 0:
                 RP_utils.save_model(model, "RL_" + str(i), model_id)
 
             profile = read_profile(inputfile)
@@ -395,14 +414,16 @@ class RP_RL():
         best_model = np.argmin(val_results)
         print("Best model", best_model)
 
-        # Use best model from validation testing to test on test set
+        # Use best model from validation testing to test 10x on test set
         RP_utils.load_model(model, rpconfig.results_path + str(model_id) + "_RL_test_" + str(best_model) + "_model.pth.tar")
         # Create agent
         if params.f_use_v2:
             agent_testing = RP_RL_agent_v2(model, base.learning_rate)
         else:
             agent_testing = RP_RL_agent(model, base.learning_rate)
-        test_model(test_output_file, test_output_summary_file, agent_testing, test_filenames, true_winners_test, model_id, "final")
+
+        for t in range(10):
+            test_model(test_output_file, test_output_summary_file, agent_testing, test_filenames, true_winners_test, model_id, "final_" + str(t))
 
         print("Total Time to Train: %f" % total_time)
         print("Average Time Per Profile: %f" % (total_time / len(train_filenames)))
@@ -413,4 +434,6 @@ class RP_RL():
         output_file.close()
         test_output_file.close()
         test_output_summary_file.close()
+        val_output_file.close()
+        val_output_summary_file.close()
         loss_file.close()

@@ -68,6 +68,12 @@ class RP_SL():
 
         # out/in degree
         if params.use_in_out:
+            f.append(G.out_degree(u))
+            f.append(G.in_degree(u))
+            f.append(G.out_degree(v))
+            f.append(G.in_degree(v))
+
+        if params.use_in_out_relative:
             f.extend(RP_utils.polynomialize(RP_utils.safe_div(G.out_degree(u), E_0.out_degree(u)), params.num_polynomial))
             f.extend(RP_utils.polynomialize(RP_utils.safe_div(G.in_degree(u), E_0.in_degree(u)), params.num_polynomial))
             f.extend(RP_utils.polynomialize(RP_utils.safe_div(G.out_degree(v), E_0.out_degree(v)), params.num_polynomial))
@@ -145,6 +151,10 @@ class RP_SL():
             f.extend(RP_utils.polynomialize(RP_utils.avg_edge_connectivity(G, self.I, v), params.num_polynomial))
             f.extend(RP_utils.polynomialize(RP_utils.avg_node_connectivity(G, self.I, u), params.num_polynomial))
             f.extend(RP_utils.polynomialize(RP_utils.avg_node_connectivity(G, self.I, v), params.num_polynomial))
+
+        if params.use_betweenness_centrality:
+            f.extend(RP_utils.polynomialize(self.profile_to_betweenness_centralities[profile][u], params.num_polynomial))
+            f.extend(RP_utils.polynomialize(self.profile_to_betweenness_centralities[profile][v], params.num_polynomial))
 
         return Variable(torch.from_numpy(np.array(f)).float())
 
@@ -260,6 +270,7 @@ class RP_SL():
         self.profile_to_max_edge_weight = {}
         self.profile_to_vectorized_wmg = {}
         self.profile_to_posmat = {}
+        self.profile_to_betweenness_centralities = {}
 
         n = 0
         n2 = 0
@@ -307,6 +318,8 @@ class RP_SL():
 
                 self.profile_to_vectorized_wmg[current_profile] = RP_utils.vectorize_wmg(wmg)
                 self.profile_to_posmat[current_profile] = RP_utils.profile2posmat(profile_matrix)
+
+                self.profile_to_betweenness_centralities[current_profile] = nx.betweenness_centrality(E, normalized=True)
 
             if len(line) == 5:
                 # each line in form G E K a[0] a[1]
