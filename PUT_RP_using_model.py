@@ -268,6 +268,12 @@ class MechanismRankedPairs():
 
         # out/in degree
         if params.use_in_out:
+            f.append(G.out_degree(u))
+            f.append(G.in_degree(u))
+            f.append(G.out_degree(v))
+            f.append(G.in_degree(v))
+
+        if params.use_in_out_relative:
             f.extend(self.polynomialize(self.safe_div(G.out_degree(u), self.E_0.out_degree(u)), params.num_polynomial))
             f.extend(self.polynomialize(self.safe_div(G.in_degree(u), self.E_0.in_degree(u)), params.num_polynomial))
             f.extend(self.polynomialize(self.safe_div(G.out_degree(v), self.E_0.out_degree(v)), params.num_polynomial))
@@ -439,7 +445,6 @@ class MechanismRankedPairs():
 
         stats.num_initial_bridges = len(bridges)
 
-
         # if using cycle feature
         start_cycles = time.perf_counter()
 
@@ -463,7 +468,6 @@ class MechanismRankedPairs():
             self.edge_to_cycle_occurrence[e] += 1
 
         stats.time_for_cycles += time.perf_counter() - start_cycles
-
 
         # Each node contains (G, E, tier)
         # root = Node(value=(self.edges2string(G.edges(), I), self.edges2string(E.edges(), I)))

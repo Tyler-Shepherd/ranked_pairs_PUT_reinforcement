@@ -49,9 +49,36 @@ class RL_base():
         if full_K:
             agent.K = frozenset(agent.known_winners)
 
+        # last_printed = time.perf_counter()
+        # output_file = open(rpconfig.results_path + "PUT_output.txt", 'a')
+
         # While not reached goal state
         while agent.at_goal_state()[0] == -1:
             legal_actions = agent.get_legal_actions()
+
+            # if agent.stats.num_nodes % 100 == 0:
+                # print("num_nodes", agent.stats.num_nodes)
+                # print("len frontier", len(agent.frontier))
+                # print("num hashed", agent.stats.num_hashed)
+                # print("running nodes", agent.running_nodes)
+                # print("running loss", agent.running_loss)
+                # time_since = time.perf_counter() - last_printed
+                # print("time since last printed", time_since)
+                # print("time per node", time_since / 100)
+                #
+                # output_file.write("num_nodes" + '\t' + str(agent.stats.num_nodes) + '\n')
+                # output_file.write("len frontier" + '\t' + str(len(agent.frontier)) + '\n')
+                # output_file.write("num hashed" + '\t' + str(agent.stats.num_hashed) + '\n')
+                # output_file.write("running nodes" + '\t' + str(agent.running_nodes) + '\n')
+                # output_file.write("running loss" + '\t' + str(agent.running_loss) + '\n')
+                # time_since = time.perf_counter() - last_printed
+                # output_file.write("time since last printed" + '\t' + str(time_since) + '\n')
+                # output_file.write("time per node" + '\t' + str(time_since / 100) + '\n')
+                # output_file.write("-----------------------------------\n")
+                # output_file.flush()
+
+                # last_printed = time.perf_counter()
+                # print("---------------------")
 
             if params.debug_mode >= 2:
                 agent.print_state()
@@ -121,6 +148,8 @@ class RL_base():
                 # from https://pytorch.org/tutorials/intermediate/reinforcement_q_learning.html (originally for exploration rate decay)
                 self.learning_rate = params.learning_rate_end + (params.learning_rate_start - params.learning_rate_end) * math.exp(
                     -1. * agent.running_nodes / params.learning_rate_decay)
+
+        # output_file.close()
 
         # Reached goal state
         agent.goal_state_update()
@@ -202,6 +231,9 @@ class RL_base():
                 self.learning_iteration(agent, iter_to_find_winner=iter_to_find_winner)
             else:
                 self.learning_iteration(agent)
+
+            if params.f_use_PUT_agent:
+                assert agent.known_winners == true_winners
 
             # if params.f_learning_rate_decay == 2:
             #     # from http://www.cs.cmu.edu/afs/andrew/course/15/381-f08/www/lectures/HandoutModelFreeRL.pdf

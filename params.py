@@ -9,37 +9,47 @@ import datetime
 run_SL = 0
 run_RL = 1
 
+# If 1, ignores model and uses LP heuristic from paper for q vals
 test_with_LP = 0
+
+# If 1, ignores model and selects actions randomly
+test_with_random = 0
+
+# If 1, runs 10x tests on test data at start
 test_10x = 0
+
+# PUT_agent learns how to fully search PUT-RP search space
+f_use_PUT_agent = 0
 
 ############## Reinforcement Learning Parameters
 
 # After how many profiles trained to test the model
 # Runs test on validation data
-test_every = 1000
+test_every = 5000
 
 # Whether or not to test before any RL training
 test_at_start = 0
 
 # Whether to shuffle the training data
-shuffle_training_data = 1
+shuffle_training_data = 0
 
 # Number of iterations to use when testing
 # Doesn't matter if using test_till_find_all_winners or testing_v2
-num_test_iterations = 10
+num_test_iterations = 5
 
 # Whether to use experience replay
 f_experience_replay = 0
 
 f_train_till_find_all_winners = 0
 
-f_use_winners_distribution = 1
+f_use_winners_distribution = 0
 
 # Uses PUT_RP_using_model
 f_test_using_PUT_RP = 0
 
-# V2 has model return values for all edges
-f_use_v2 = 1
+# V2 has model return values over all potential edges, instead of just q value of single action
+# reduces computation time, but harder to learn
+f_use_v2 = 0
 
 # Testing v2 tests number of samples to find all winners
 f_use_testing_v2 = 1
@@ -70,7 +80,13 @@ discount_factor = 0.95
 # after how many iterations to update the target network to the agent's learned network
 update_target_network_every = 1
 
-num_training_iterations = 200
+# num iterations per profile
+num_training_iterations = 1
+
+# number of epochs, where one epoch = num_training_iterations per profile
+num_epochs = 2
+
+
 
 # 1 = eps greedy
 # 2 = boltzmann
@@ -92,14 +108,15 @@ default_model_path = "C:\\Users\shepht2\Documents\School\Masters\STV Ranked Pair
 
 # What features to include
 num_polynomial = 1
-use_in_out = False # out/in of u,v
+use_in_out = True # out/in of u,v
 use_in_out_relative = False
 use_total_degree = False
 use_in_out_binary = False # binary out/in of u,v
-use_in_out_matrix = True # in/out of every node
+use_in_out_matrix = False # in/out of every node
+use_in_out_relative_matrix = False
 use_total_degree_matrix = False # total degree of every node
 use_in_out_binary_matrix = False # in/out binary of every node
-use_K = False # u,v in K
+use_K = True # u,v in K
 use_K_big = False
 use_voting_rules = False
 use_voting_rules_matrix = False
@@ -113,7 +130,7 @@ use_connectivity = False # takes forever to compute, don't use it
 use_connectivity_matrix = False # takes forever to compute, don't use it
 
 use_adjacency_matrix = False
-use_K_representation = True
+use_K_representation = False
 use_betweenness_centrality = False
 
 
@@ -128,6 +145,8 @@ if use_total_degree:
 if use_in_out_binary:
     D_in += 4
 if use_in_out_matrix:
+    D_in += 2 * m * num_polynomial
+if use_in_out_relative_matrix:
     D_in += 2 * m * num_polynomial
 if use_total_degree_matrix:
     D_in += m * num_polynomial
@@ -161,10 +180,12 @@ if use_K_representation:
     D_in += m
 if use_betweenness_centrality:
     D_in += 2 * num_polynomial
+if f_use_PUT_agent:
+    D_in += 1 # depth
 
 D_in = int(D_in)
 
-H1 = 32  # first hidden dimension
+H1 = 10  # first hidden dimension
 H2 = 32  # second hidden dimension
 
 if f_use_v2:
@@ -190,6 +211,9 @@ cutoff_testing_iterations = 1000
 
 # if train_till_find_all_winners, stops after this many iterations
 cutoff_training_iterations = 25000
+
+# if f_use_PUT_agent, cutoff testing nodes in validation testing
+cutoff_testing_nodes = 100000
 
 
 # Experience Replay Parameters
@@ -227,6 +251,15 @@ debug_mode = 0
 
 # Print parameters
 def print_params(parameters_file):
+    parameters_file.write("run_SL\t" + str(run_SL) + '\n')
+    parameters_file.write("run_RL\t" + str(run_RL) + '\n')
+
+    parameters_file.write("test_with_LP\t" + str(test_with_LP) + '\n')
+    parameters_file.write("test_with_random\t" + str(test_with_random) + '\n')
+    parameters_file.write("test_10x\t" + str(test_10x) + '\n')
+
+    parameters_file.write("f_use_PUT_agent\t" + str(f_use_PUT_agent) + '\n')
+
     parameters_file.write("Training Data Shuffled\t" + str(shuffle_training_data) + '\n')
     parameters_file.write("Learning Rate Decay\t" + str(f_learning_rate_decay) + '\n')
     if f_learning_rate_decay == 0:
@@ -249,6 +282,7 @@ def print_params(parameters_file):
         parameters_file.write("Tau End\t" + str(tau_end) + '\n')
         parameters_file.write("Tau Decay\t" + str(tau_decay) + '\n')
     parameters_file.write("Num Training Iterations per Profile\t" + str(num_training_iterations) + '\n')
+    parameters_file.write("num_epochs\t" + str(num_epochs) + '\n')
     parameters_file.write("Agent D_in\t" + str(D_in) + '\n')
     parameters_file.write("Agent H1\t" + str(H1) + '\n')
     parameters_file.write("Agent H2\t" + str(H2) + '\n')
@@ -262,6 +296,7 @@ def print_params(parameters_file):
     parameters_file.write("use_total_degree\t" + str(use_total_degree) + '\n')
     parameters_file.write("use_in_out_binary\t" + str(use_in_out_binary) + '\n')
     parameters_file.write("use_in_out_matrix\t" + str(use_in_out_matrix) + '\n')
+    parameters_file.write("use_in_out_relative_matrix\t" + str(use_in_out_relative_matrix) + '\n')
     parameters_file.write("use_total_degree_matrix\t" + str(use_total_degree_matrix) + '\n')
     parameters_file.write("use_in_out_binary_matrix\t" + str(use_in_out_binary_matrix) + '\n')
     parameters_file.write("use_K\t" + str(use_K) + '\n')

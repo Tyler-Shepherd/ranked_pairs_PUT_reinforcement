@@ -62,7 +62,8 @@ if __name__ == '__main__':
         model = torch.nn.Sequential(
             torch.nn.Linear(params.D_in, params.H1),
             torch.nn.Sigmoid(),
-            torch.nn.Linear(params.H1, params.D_out)
+            torch.nn.Linear(params.H1, params.D_out),
+            torch.nn.Sigmoid()
         )
         if params.use_in_out_matrix or params.use_total_degree_matrix or params.use_in_out_binary_matrix or params.use_voting_rules_matrix or params.use_connectivity_matrix:
             print("Features not implemented for v1")
@@ -73,6 +74,14 @@ if __name__ == '__main__':
 
     if params.f_experience_replay and (params.use_visited or params.use_cycles):
         print('Features not implemented for experience replay')
+        sys.exit(0)
+
+    if params.test_with_random and params.test_with_LP:
+        print("Cant random test and LP test")
+        sys.exit(0)
+
+    if params.f_use_PUT_agent and (params.f_use_v2 or params.f_use_testing_v2):
+        print("Cant v2 and PUT")
         sys.exit(0)
 
     print("Model:")

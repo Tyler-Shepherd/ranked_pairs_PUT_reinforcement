@@ -41,16 +41,9 @@ class RP_RL_stats():
         # loss over entire profile
         self.running_loss = 0
 
-        self.time_for_node2vec = 0
-        self.time_for_G_with_weights = 0
-        self.time_for_node2vecgraph = 0
-        self.time_for_node2vectransitions = 0
-        self.time_for_simulate_walks = 0
-
-        # cycles, visited, adjacency
-        self.time_for_features = [0, 0, 0]
-
         self.num_iters_reset_skipped = 0
+
+        self.num_hashed = 0
 
 
 class RP_RL_agent_v2():
@@ -299,10 +292,6 @@ class RP_RL_agent_v2():
         print("E:", self.E.edges())
         print("K:", self.K)
 
-    # Returns array of val to each power from 1 to i
-    def polynomialize(self, val, i):
-        return [val**j for j in range(1, i+1)]
-
     '''
     Returns input layer features at current state
     '''
@@ -314,11 +303,20 @@ class RP_RL_agent_v2():
         if params.use_in_out_matrix:
             out_degree = self.G.out_degree(self.I)
             for (i,j) in out_degree:
-                f.extend(self.polynomialize(self.safe_div(j, self.E_0.out_degree(i)), params.num_polynomial))
+                f.extend(RP_utils.polynomialize(j / params.m, params.num_polynomial))
 
             in_degree = self.G.in_degree(self.I)
             for (i,j) in in_degree:
-                f.extend(self.polynomialize(self.safe_div(j, self.E_0.in_degree(i)), params.num_polynomial))
+                f.extend(RP_utils.polynomialize(j / params.m, params.num_polynomial))
+
+        if params.use_in_out_relative_matrix:
+            out_degree = self.G.out_degree(self.I)
+            for (i,j) in out_degree:
+                f.extend(RP_utils.polynomialize(RP_utils.safe_div(j, self.E_0.out_degree(i)), params.num_polynomial))
+
+            in_degree = self.G.in_degree(self.I)
+            for (i,j) in in_degree:
+                f.extend(RP_utils.polynomialize(RP_utils.safe_div(j, self.E_0.in_degree(i)), params.num_polynomial))
 
         if params.use_total_degree_matrix:
             for i in self.I:
@@ -600,11 +598,17 @@ class RP_RL_agent_v2():
         torch.save(self.model.state_dict(), "results_RP_RL_main" + str(id) + "_model.pth.tar")
         print("model saved")
 
-
-    def test_model(self, test_env):
+    '''
+    Tests num of PUT_winners that can be found in params.num_test_iterations samples
+    test_env is profile to test on
+    begin_time is the time.perf_counter this was called at
+    val_testing is whether or not this test is being done for validation
+    '''
+    def test_model(self, test_env, begin_time = 0, val_testing = 0):
         self.initialize(test_env)
 
         times_discovered = {}
+        runtimes_discovered = {}
         num_iters_to_find_all_winners = 0
 
         # Sample using model greedily
@@ -624,20 +628,26 @@ class RP_RL_agent_v2():
                         break
 
                     # for random action selection testing
-                    # max_action = legal_actions[random.randint(0, len(legal_actions) - 1)]
+                    if params.test_with_random:
+                        max_action = legal_actions[random.randint(0, len(legal_actions) - 1)]
 
                     # Boltzmann
-                    action_Q_vals = self.get_Q_vals()
-                    q_vals_boltz = []
+                    elif not params.test_with_LP:
+                        action_Q_vals = self.get_Q_vals()
+                        q_vals_boltz = []
 
-                    for e in legal_actions:
-                        q_vals_boltz.append(exp(action_Q_vals[e].item() / params.tau_for_testing))
-                    q_sum = sum(q_vals_boltz)
-                    probs = []
-                    for v in q_vals_boltz:
-                        probs.append(v / q_sum)
-                    legal_actions_index = [i for i in range(len(legal_actions))]
-                    selected_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
+                        for e in legal_actions:
+                            q_vals_boltz.append(exp(action_Q_vals[e].item() / params.tau_for_testing))
+                        q_sum = sum(q_vals_boltz)
+                        probs = []
+                        for v in q_vals_boltz:
+                            probs.append(v / q_sum)
+                        legal_actions_index = [i for i in range(len(legal_actions))]
+                        selected_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
+
+                    else:
+                        # test with LP not implemented yet
+                        assert 1==2
 
                     assert (selected_action is not None)
 
@@ -647,15 +657,22 @@ class RP_RL_agent_v2():
                 new_winners = self.goal_state_update()
 
                 for c in new_winners:
+                    runtimes_discovered[c] = time.perf_counter() - begin_time
                     times_discovered[c] = iter
 
-        return self.known_winners, times_discovered, num_iters_to_find_all_winners
+        return self.known_winners, times_discovered, num_iters_to_find_all_winners, runtimes_discovered
 
-    # tests "how many samples to find all winners"
-    def test_model_v2(self, test_env, true_winners):
+    '''
+    Tests "how many samples to find all winners"
+    test_env is profile
+    true_winners is the set of the actual winners for test_env
+    begin_time is time.perf_counter this was called at
+    '''
+    def test_model_v2(self, test_env, true_winners, begin_time = 0):
         self.initialize(test_env)
 
         times_discovered = {}
+        runtimes_discovered = {}
         num_iters_to_find_all_winners = 0
 
         # Sample using model
@@ -679,10 +696,11 @@ class RP_RL_agent_v2():
                         break
 
                     # for random action selection testing
-                    # selected_action = legal_actions[random.randint(0, len(legal_actions) - 1)]
+                    if params.test_with_random:
+                        selected_action = legal_actions[random.randint(0, len(legal_actions) - 1)]
 
                     # Boltzmann
-                    if not params.test_with_LP:
+                    elif not params.test_with_LP:
                         action_Q_vals = self.get_Q_vals()
                         q_vals_boltz = []
                         for e in legal_actions:
@@ -704,12 +722,10 @@ class RP_RL_agent_v2():
                 new_winners = self.goal_state_update()
 
                 for c in new_winners:
+                    runtimes_discovered[c] = time.perf_counter() - begin_time
                     times_discovered[c] = num_iters_to_find_all_winners
 
-        return self.known_winners, times_discovered, num_iters_to_find_all_winners
-
-
-
+        return self.known_winners, times_discovered, num_iters_to_find_all_winners, runtimes_discovered
 
     def load_model(self, checkpoint_filename):
         checkpoint = torch.load(checkpoint_filename)
@@ -726,10 +742,6 @@ class RP_RL_agent_v2():
         self.E = new_state[1]
         self.K = new_state[2]
 
-    def safe_div(self, num, denom):
-        if denom == 0:
-            return 0
-        return num / denom
 
     def state_as_string(self):
         state_str = edges2string(self.G.edges(), self.I) + edges2string(self.E.edges(), self.I)

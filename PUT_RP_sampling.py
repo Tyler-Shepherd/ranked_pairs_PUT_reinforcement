@@ -287,7 +287,7 @@ class MechanismRankedPairs():
                     print("E is empty")
                 self.add_winners(G, I, known_winners, stats)
 
-        return sorted(known_winners), stats
+        return sorted(known_winners), stats, iters_discovered
 
     def edges2string(self, edges, I):
         m = len(I)
@@ -624,7 +624,7 @@ if __name__ == '__main__':
 
     agent = RP_RL_agent(model)
 
-    print("inputfile\tPUT-winners\tnum nodes\tdiscovery states\tmax discovery state\tdiscovery times\tmax discovery times\tstop condition hits\tsum stop cond hits\tnum hashes\tnum initial bridges\tnum redundant edges\tnum sampled\tsampled\truntime")
+    print("inputfile\tPUT-winners\tnum nodes\tdiscovery states\tmax discovery state\tdiscovery times\tmax discovery times\tstop condition hits\tsum stop cond hits\tnum hashes\tnum initial bridges\tnum redundant edges\tnum sampled\tsampled\tsamples discovered\tmax sample discovery\truntime")
 
     for inputfile in filenames:
         inf = open(inputfile, 'r')
@@ -646,12 +646,14 @@ if __name__ == '__main__':
 
         PUT_winners = rp_results[0]
         stats = rp_results[1]
+        samples_discovered = rp_results[2]
         max_discovery_state = max(stats.discovery_states.values())
         max_discovery_time = max(stats.discovery_times.values())
         num_stop_condition_hits = sum(list(stats.stop_condition_hits.values()))
+        max_sample = max(samples_discovered.values())
 
-        print("%s\t%r\t%d\t%r\t%d\t%r\t%f\t%r\t%d\t%d\t%d\t%d\t%d\t%r\t%f" % (inputfile, PUT_winners, stats.num_nodes, stats.discovery_states,
-                                                  max_discovery_state, stats.discovery_times, max_discovery_time, stats.stop_condition_hits, num_stop_condition_hits, stats.num_hashes, stats.num_initial_bridges, stats.num_redundant_edges, stats.num_sampled, stats.sampled, (end - start)))
+        print("%d\t%s\t%r\t%d\t%r\t%d\t%r\t%f\t%r\t%d\t%d\t%d\t%d\t%d\t%r\t%r\t%d\t%f" % (num_profiles, inputfile, PUT_winners, stats.num_nodes, stats.discovery_states,
+                                                  max_discovery_state, stats.discovery_times, max_discovery_time, stats.stop_condition_hits, num_stop_condition_hits, stats.num_hashes, stats.num_initial_bridges, stats.num_redundant_edges, stats.num_sampled, stats.sampled, samples_discovered, max_sample, (end - start)))
 
         num_profiles += 1
         total_time += end - start

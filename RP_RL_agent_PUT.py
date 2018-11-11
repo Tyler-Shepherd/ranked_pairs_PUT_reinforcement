@@ -36,7 +36,7 @@ class RP_RL_stats():
         self.num_nodes = 0
         self.stop_condition_hits = {1: 0, 2: 0, 3: 0}
 
-        # loss over each profile, reset every profile
+        # loss over each profile
         self.running_loss = 0
 
         self.time_for_connectivity = 0
@@ -46,7 +46,7 @@ class RP_RL_stats():
         self.num_hashed = 0
 
 
-class RP_RL_agent():
+class RP_RL_agent_PUT():
     def __init__(self, model, learning_rate = 0, loss_output_file = None):
         # Initialize learning model
         self.model = model
@@ -78,27 +78,14 @@ class RP_RL_agent():
         elif params.optimizer_algo == 3:
             self.optimizer = torch.optim.SGD(self.model.parameters(), lr=learning_rate)
 
-        self.visited = {}
-
         self.stats = RP_RL_stats()
-
-        # node2vec stuff (unused since node2vec takes an unreasonably long time)
-        # self.node2vec_args = node2vecmain.parse_args()
-        # self.node2vec_args.directed = True
-        # self.node2vec_args.weighted = False
-        # self.node2vec_args.unweighted = True
-        # self.node2vec_args.undirected = False
-        # self.node2vec_args.output = "node2vec_output.emb"
-        # self.node2vec_args.num_walks = 1
-        # self.node2vec_args.walk_length = 1
-        # self.node2vec_args.dimensions = 2
 
     '''
     Initializes environment for an iteration of learning
     env0 is a profile
     creates G_0 = initial state of RP graph (no edges)
     creates E_0 = initial state of unadded edges (all of them)
-    resets visited set
+    adds initial node to frontier
     '''
     def initialize(self, env0):
         wmg = env0.getWmg()
@@ -164,7 +151,7 @@ class RP_RL_agent():
         # walks = node2vec_G.simulate_walks(self.node2vec_args.num_walks, self.node2vec_args.walk_length)
         # self.node2vec_model = node2vecmain.learn_embeddings(walks, self.node2vec_args)
 
-        self.visited = {}
+        self.visited = set()
 
         # compute voting rules scores
         if params.use_voting_rules:
@@ -193,143 +180,148 @@ class RP_RL_agent():
 
         self.stats = RP_RL_stats()
 
+        # frontier contains tuples of (e, G, E, depth)
+        # e is edge that when added produced (G, E)
+        self.frontier = []
+        first_T = self.get_tier(self.G_0, self.E_0, 0)
+        self.frontier.extend(first_T)
+
     '''
-    Resets G (the current RP graph), E (the graph of unadded edges) and K (the known winners)
-    Does not reset the visited set
-    Randomly initializes K from known_winners - if iter_to_find_winner supplied, uses that to determine probability of including each winner
-    If winners_distribution provided, uses that to initialize K (winners_distribution is more accurate than iter_to_find_winner)
+    Resets to start of PUT search
+    Resets frontier
+    Resets visited set
     '''
     def reset_environment(self, iter_to_find_winner = None, winners_distribution = None):
-        self.G = self.G_0.copy()
-        self.E = self.E_0.copy()
+        self.frontier = []
+        first_T = self.get_tier(self.G_0, self.E_0, 0)
+        self.frontier.extend(first_T)
 
-        # Randomly initialize known winners
-        self.K = set()
+        self.visited = set()
 
-        if winners_distribution is not None:
-            total_iters = 1000
-            true_winners = winners_distribution.keys()
-            probs = []
-            for a in true_winners:
-                prob_of_adding = winners_distribution[a] / (total_iters + 1)
-                probs.append(prob_of_adding)
-                if random.random() < prob_of_adding:
-                    self.K.add(a)
-            if true_winners == self.K:
-                # pointless to train if K is already the true winners set
-                self.stats.num_iters_reset_skipped += 1
-                return -1
-        elif iter_to_find_winner is not None:
-            max_num_iters = max(i for i in iter_to_find_winner.values())
-            for a in self.known_winners:
-                if random.random() > (1 - iter_to_find_winner[a] / (max_num_iters + 1)):
-                    self.K.add(a)
-        else:
-            for a in self.known_winners:
-                if random.random() > 0.5:
-                    self.K.add(a)
-        self.K = frozenset(self.K)
-
-        if params.use_visited:
-            self.update_visited()
+        self.known_winners = set()
 
         return 0
 
     '''
-    Returns -1 if not at goal state
-    Returns 1 if E has no more edges
-    Returns 2 if pruned
-    Returns 3 if only one possible winner
-    Returns the possible winners (cands with indegree 0) as second value
+    Returns -1 if nodes still in frontier
+    Return 1 if frontier empty (fully completed search)
     '''
     def at_goal_state(self, update_stats = 1):
-        in_deg = self.G.in_degree(self.I)
+        if len(self.frontier) == 0:
+            return 1, None
+        else:
+            return -1, None
+
+    '''
+    Returns -1 if (G,E) not a terminal state
+    Returns 2 if terminal and found new winner
+    Returns 1 if terminal and not found new winner
+    Second return val is new winners if exist
+    '''
+    def at_terminal_state(self, G, E, update_stats=1):
+        in_deg = G.in_degree(self.I)
         possible_winners = [x[0] for x in in_deg if x[1] == 0]
 
         # Stop Condition 2: Pruning. Possible winners are subset of known winners
-        if set(possible_winners) <= self.K:
+        if set(possible_winners) <= self.known_winners:
             self.stats.stop_condition_hits[2] += (1 * update_stats)
             if params.debug_mode >= 3:
-                print("at_goal_state: 2")
-            return 2, possible_winners
+                print("at_goal_state: pruned")
+            return 1, None
 
         # Stop Condition 1: E has no more edges
-        if len(self.E.edges()) == 0:
+        if len(E.edges()) == 0:
             self.stats.stop_condition_hits[1] += (1 * update_stats)
             if params.debug_mode >= 3:
                 print("at_goal_state: 1")
-            return 1, possible_winners
+            new_winners = set(possible_winners) - self.known_winners
+            if len(new_winners) > 0:
+                return 2, new_winners
+            return 1, None
 
         # Stop Condition 3: Exactly one node has indegree 0
         if len(possible_winners) == 1:
             self.stats.stop_condition_hits[3] += (1 * update_stats)
             if params.debug_mode >= 3:
                 print("at_goal_state: 3")
-            return 3, possible_winners
+            return 2, possible_winners
 
-        return -1, possible_winners
+        return -1, None
+
 
     '''
-    Returns the highest weight edges in E that do not cause a cycle if added
+    returns list of (e, G, E, depth) that are next tier
     '''
-    def get_legal_actions(self):
-        if len(self.E.edges()) == 0:
+    def get_tier(self, G, E, depth):
+        if len(E.edges()) == 0:
             # There are no possible actions
             return []
 
-        Gc = self.G.copy()
-        G_transitive_closure = nx.transitive_closure(self.G)
+        G_transitive_closure = nx.transitive_closure(G)
 
-        max_weight = max([(d['weight']) for (u, v, d) in self.E.edges(data=True)])
-        T = [(u, v) for (u, v, d) in self.E.edges(data=True) if d['weight'] == max_weight]
+        max_weight = max([(d['weight']) for (u, v, d) in E.edges(data=True)])
+        T = [(u, v) for (u, v, d) in E.edges(data=True) if d['weight'] == max_weight]
 
-        legal_actions = []
-
+        tier = []
         for e in T:
             if not G_transitive_closure.has_edge(e[1], e[0]):
+                Gc = G.copy()
+                Ec = E.copy()
                 Gc.add_edges_from([e])
-                legal_actions.append(e)
-                Gc.remove_edges_from([e])
+                Ec.remove_edges_from([e])
+                tier.append((e, Gc, Ec, depth+1))
 
-        return legal_actions
+        return tier
 
-
-    def print_state(self):
-        print("G:", self.G.edges())
-        print("E:", self.E.edges())
-        print("K:", self.K)
-
+    '''
+    Returns frontier
+    If len(frontier) > 1000, just returns 1000 randomly
+    '''
+    def get_legal_actions(self):
+        max_len = 1000
+        if len(self.frontier) > max_len:
+            choices = np.random.choice(len(self.frontier), max_len, replace=False)
+            return [self.frontier[i] for i in choices]
+        return self.frontier
 
     '''
     Returns input layer features at current state taking action a
-    a is an edge
+    a is tuple (edge, G, E, depth)
     '''
     def state_features(self, a):
-        u = a[0]
-        v = a[1]
+        e = a[0]
+        G = a[1]
+        E = a[2]
+        depth = a[3]
+
+        u = e[0]
+        v = e[1]
 
         f = []
 
         # out/in degree
         if params.use_in_out:
-            f.extend(RP_utils.polynomialize(self.G.out_degree(u) / params.m, params.num_polynomial))
-            f.extend(RP_utils.polynomialize(self.G.in_degree(u) / params.m, params.num_polynomial))
-            f.extend(RP_utils.polynomialize(self.G.out_degree(v) / params.m, params.num_polynomial))
-            f.extend(RP_utils.polynomialize(self.G.in_degree(v) / params.m, params.num_polynomial))
+            f.extend(RP_utils.polynomialize(G.out_degree(u) / params.m, params.num_polynomial))
+            f.extend(RP_utils.polynomialize(G.in_degree(u) / params.m, params.num_polynomial))
+            f.extend(RP_utils.polynomialize(G.out_degree(v) / params.m, params.num_polynomial))
+            f.extend(RP_utils.polynomialize(G.in_degree(v) / params.m, params.num_polynomial))
 
         if params.use_in_out_relative:
-            f.extend(RP_utils.polynomialize(RP_utils.safe_div(self.G.out_degree(u), self.E_0.out_degree(u)), params.num_polynomial))
-            f.extend(RP_utils.polynomialize(RP_utils.safe_div(self.G.in_degree(u), self.E_0.in_degree(u)), params.num_polynomial))
-            f.extend(RP_utils.polynomialize(RP_utils.safe_div(self.G.out_degree(v), self.E_0.out_degree(v)), params.num_polynomial))
-            f.extend(RP_utils.polynomialize(RP_utils.safe_div(self.G.in_degree(v), self.E_0.in_degree(v)), params.num_polynomial))
+            assert 1==2
+            f.extend(self.polynomialize(self.safe_div(self.G.out_degree(u), self.E_0.out_degree(u)), params.num_polynomial))
+            f.extend(self.polynomialize(self.safe_div(self.G.in_degree(u), self.E_0.in_degree(u)), params.num_polynomial))
+            f.extend(self.polynomialize(self.safe_div(self.G.out_degree(v), self.E_0.out_degree(v)), params.num_polynomial))
+            f.extend(self.polynomialize(self.safe_div(self.G.in_degree(v), self.E_0.in_degree(v)), params.num_polynomial))
 
         # total degree
         if params.use_total_degree:
-            f.extend(RP_utils.polynomialize(RP_utils.safe_div(self.G.out_degree(u) + self.G.in_degree(u), self.E_0.out_degree(u) + self.E_0.in_degree(u)), params.num_polynomial))
-            f.extend(RP_utils.polynomialize(RP_utils.safe_div(self.G.out_degree(v) + self.G.in_degree(v), self.E_0.out_degree(v) + self.E_0.in_degree(v)), params.num_polynomial))
+            assert 1 == 2
+            f.extend(self.polynomialize(self.safe_div(self.G.out_degree(u) + self.G.in_degree(u), self.E_0.out_degree(u) + self.E_0.in_degree(u)), params.num_polynomial))
+            f.extend(self.polynomialize(self.safe_div(self.G.out_degree(v) + self.G.in_degree(v), self.E_0.out_degree(v) + self.E_0.in_degree(v)), params.num_polynomial))
 
         # binary "has out/in degree" features
         if params.use_in_out_binary:
+            assert 1 == 2
             f.append(2 * int(self.G.out_degree(u) > 0) - 1)
             f.append(2 * int(self.G.in_degree(u) > 0) - 1)
             f.append(2 * int(self.G.out_degree(v) > 0) - 1)
@@ -337,47 +329,55 @@ class RP_RL_agent():
 
         # known winners features
         if params.use_K:
-            f.append(2 * int(u in self.K) - 1)
-            f.append(2 * int(v in self.K) - 1)
+            f.append(2 * int(u in self.known_winners) - 1)
+            f.append(2 * int(v in self.known_winners) - 1)
 
         if params.use_K_big:
+            assert 1==2
             f.append(int(u in self.K) * 100)
             f.append(int(v in self.K) * 100)
 
         # voting rules scores
         if params.use_voting_rules:
-            f.extend(RP_utils.polynomialize(self.plurality_scores[u], params.num_polynomial))
-            f.extend(RP_utils.polynomialize(self.plurality_scores[v], params.num_polynomial))
-            f.extend(RP_utils.polynomialize(self.borda_scores[u], params.num_polynomial))
-            f.extend(RP_utils.polynomialize(self.borda_scores[v], params.num_polynomial))
-            f.extend(RP_utils.polynomialize(self.copeland_scores[u], params.num_polynomial))
-            f.extend(RP_utils.polynomialize(self.copeland_scores[v], params.num_polynomial))
-            f.extend(RP_utils.polynomialize(self.maximin_scores[u], params.num_polynomial))
-            f.extend(RP_utils.polynomialize(self.maximin_scores[v], params.num_polynomial))
+            assert 1 == 2
+            f.extend(self.polynomialize(self.plurality_scores[u], params.num_polynomial))
+            f.extend(self.polynomialize(self.plurality_scores[v], params.num_polynomial))
+            f.extend(self.polynomialize(self.borda_scores[u], params.num_polynomial))
+            f.extend(self.polynomialize(self.borda_scores[v], params.num_polynomial))
+            f.extend(self.polynomialize(self.copeland_scores[u], params.num_polynomial))
+            f.extend(self.polynomialize(self.copeland_scores[v], params.num_polynomial))
+            f.extend(self.polynomialize(self.maximin_scores[u], params.num_polynomial))
+            f.extend(self.polynomialize(self.maximin_scores[v], params.num_polynomial))
 
         if params.use_vectorized_wmg:
+            assert 1 == 2
             f.extend(self.vectorized_wmg)
 
         if params.use_posmat:
+            assert 1 == 2
             f.extend(self.posmat)
 
         # num cycles feature
         if params.use_cycles:
+            assert 1 == 2
             if a in self.edge_to_cycle_occurrence:
-                f.extend(RP_utils.polynomialize(RP_utils.safe_div(self.edge_to_cycle_occurrence[a], self.num_cycles), params.num_polynomial))
+                f.extend(self.polynomialize(self.safe_div(self.edge_to_cycle_occurrence[a], self.num_cycles), params.num_polynomial))
             else:
-                f.extend(RP_utils.polynomialize(0, params.num_polynomial))
+                f.extend(self.polynomialize(0, params.num_polynomial))
 
         # visited feature
         if params.use_visited:
-            f.extend(RP_utils.polynomialize(self.get_num_times_visited(), params.num_polynomial))
+            assert 1 == 2
+            f.extend(self.polynomialize(self.get_num_times_visited(), params.num_polynomial))
 
         # edge weight
         if params.use_edge_weight:
-            f.extend(RP_utils.polynomialize(self.E_0_really[u][v]['weight'] / self.max_edge_weight, params.num_polynomial))
+            assert 1 == 2
+            f.extend(self.polynomialize(self.E_0_really[u][v]['weight'] / self.max_edge_weight, params.num_polynomial))
 
         # adjacency matrix if a is added
         if params.use_adjacency_matrix:
+            assert 1 == 2
             self.G.add_edge(u,v)
             adjacency = nx.adjacency_matrix(self.G, nodelist = self.I).todense()
             adjacency = np.multiply(adjacency, self.adjacency_0)
@@ -387,6 +387,7 @@ class RP_RL_agent():
 
         # K representation
         if params.use_K_representation:
+            assert 1 == 2
             K_list = []
             for i in self.I:
                 if i in self.K:
@@ -397,6 +398,7 @@ class RP_RL_agent():
 
         # tier adjacency matrix
         if params.use_tier_adjacency_matrix:
+            assert 1 == 2
             legal_actions = self.get_legal_actions()
             legal_actions.remove(a)
             T = np.zeros((int(params.m), int(params.m)))
@@ -407,16 +409,20 @@ class RP_RL_agent():
 
         # edge and node connectivity
         if params.use_connectivity:
+            assert 1 == 2
             start_connect = time.perf_counter()
-            f.extend(RP_utils.polynomialize(RP_utils.avg_edge_connectivity(self.G, self.I, u), params.num_polynomial))
-            f.extend(RP_utils.polynomialize(RP_utils.avg_edge_connectivity(self.G, self.I, v), params.num_polynomial))
-            f.extend(RP_utils.polynomialize(RP_utils.avg_node_connectivity(self.G, self.I, u), params.num_polynomial))
-            f.extend(RP_utils.polynomialize(RP_utils.avg_node_connectivity(self.G, self.I, v), params.num_polynomial))
+            f.extend(self.polynomialize(RP_utils.avg_edge_connectivity(self.G, self.I, u), params.num_polynomial))
+            f.extend(self.polynomialize(RP_utils.avg_edge_connectivity(self.G, self.I, v), params.num_polynomial))
+            f.extend(self.polynomialize(RP_utils.avg_node_connectivity(self.G, self.I, u), params.num_polynomial))
+            f.extend(self.polynomialize(RP_utils.avg_node_connectivity(self.G, self.I, v), params.num_polynomial))
             self.stats.time_for_connectivity += (time.perf_counter() - start_connect)
 
         if params.use_betweenness_centrality:
-            f.extend(RP_utils.polynomialize(self.betweenness_centralities[u], params.num_polynomial))
-            f.extend(RP_utils.polynomialize(self.betweenness_centralities[v], params.num_polynomial))
+            assert 1 == 2
+            f.extend(self.polynomialize(self.betweenness_centralities[u], params.num_polynomial))
+            f.extend(self.polynomialize(self.betweenness_centralities[v], params.num_polynomial))
+
+        f.append(depth)
 
         # node2vec every time
         # G_with_weights = nx.DiGraph()
@@ -441,10 +447,6 @@ class RP_RL_agent():
         return Variable(torch.from_numpy(np.array(f)).float())
         # return Variable(torch.from_numpy(node2vec_f).float())
 
-    '''
-    Gets q value of current state if action a taken
-    uses frozen target network if use_target_net
-    '''
     def get_Q_val(self, a, use_target_net=False):
         state_features = self.state_features(a)
 
@@ -452,22 +454,11 @@ class RP_RL_agent():
             return self.target_model(state_features)
         return self.model(state_features)
 
-    # Adds new PUT-winners to self.known_winners
+    '''
+    Do nothing
+    '''
     def goal_state_update(self):
-        G_in_degree = self.G.in_degree(self.I)
-        to_be_added = set([x[0] for x in G_in_degree if x[1] == 0])
-
-        new_winners = []
-
-        for c in to_be_added:
-            if c not in self.known_winners:
-                self.known_winners.add(c)
-                new_winners.append(c)
-
-        if params.debug_mode >= 2:
-            print('goal state with new winners', new_winners)
-
-        return new_winners
+        return
 
     def print_model(self, output_file, f_print_to_console=True):
         for p in self.model.parameters():
@@ -487,46 +478,95 @@ class RP_RL_agent():
             output_file.flush()
 
     '''
-    Adds edge a from E to G
-    And performs reductions
+    Returns 1 if (G, E) previous visited
+    Else returns 0 and adds to cache to add_to_cache
+    '''
+    def in_cache(self, G, E, add_to_cache):
+        # Check cache
+        hash_state = hash(str(G.edges()) + str(E.edges()))
+        if hash_state in self.visited:
+            self.stats.num_hashed += 1
+            if params.debug_mode == 3:
+                print("hashed in outer hashtable")
+            return 1
+        if add_to_cache:
+            self.visited.add(hash_state)
+        return 0
+
+    '''
+    a is tuple (edge, G, E, depth)
+    G already has e added and E already has e removed
+    Performs reductions
+    Adds all next nodes to frontier (removing those that are cached)
+    Saves reward as self var
     '''
     def make_move(self, a, f_testing = False):
         if params.debug_mode >= 2:
             print('making move', a)
 
-        self.G.add_edges_from([a])
-        self.E.remove_edges_from([a])
+        self.frontier.remove(a)
 
-        # Remove inconsistent edges from E
-        G_transitive_closure = nx.transitive_closure(self.G)
-        Ec = self.E.copy().edges()
-        for e in Ec:
-            if G_transitive_closure.has_edge(e[1], e[0]):
-                self.E.remove_edges_from([e])
+        e = a[0]
+        G = a[1]
+        E = a[2]
+        depth = a[3]
 
-        # Add bridge edges from E to G
-        T = self.get_legal_actions()
+        T = self.get_tier(G, E, depth)
+        T_edges = [e_T[0] for e_T in T]
 
-        Gc = self.G.copy()
-        Gc.add_edges_from(T)
-        scc = [list(g.edges()) for g in nx.strongly_connected_component_subgraphs(Gc, copy=True) if len(g.edges()) != 0]
-        bridges = set(Gc.edges()) - set(itertools.chain(*scc))
-        self.G.add_edges_from(bridges)
-        self.E.remove_edges_from(bridges)
-        T = list(set(T) - bridges)
+        # check cache
+        # if self.in_cache(G, E, add_to_cache = True):
+        #     self.current_reward = -depth
+        #     return
 
-        # Remove "redundant edges": if there is already path from e[0] to e[1], can immediately add e
-        redundant_edges = set()
-        for e in T:
-            if G_transitive_closure.has_edge(e[0], e[1]):
-                redundant_edges.add(e)
-                self.G.add_edges_from([e])
-                self.E.remove_edges_from([e])
+        for e_next, G_next, E_next, depth_next in T:
+            # Remove inconsistent edges
+            G_transitive_closure = nx.transitive_closure(G_next)
+            Ec = E_next.copy().edges()
+            for e in Ec:
+                if G_transitive_closure.has_edge(e[1], e[0]):
+                    E_next.remove_edges_from([e])
+
+            T_next = T_edges.copy()
+            T_next.remove(e_next)
+
+            # Add bridge edges
+            Gc = G_next.copy()
+            Gc.add_edges_from(T_next)
+            scc = [list(g.edges()) for g in nx.strongly_connected_component_subgraphs(Gc, copy=True) if len(g.edges()) != 0]
+            bridges = set(Gc.edges()) - set(itertools.chain(*scc))
+            G_next.add_edges_from(bridges)
+            E_next.remove_edges_from(bridges)
+            T_next = list(set(T_next) - bridges)
+
+            # Remove "redundant edges": if there is already path from e[0] to e[1], can immediately add e
+            for e_T in T_next:
+                if G_transitive_closure.has_edge(e_T[0], e_T[1]):
+                    G_next.add_edges_from([e_T])
+                    E_next.remove_edges_from([e_T])
+
+            if self.in_cache(G_next, E_next, add_to_cache=True):
+                continue
+
+            self.frontier.append((e_next, G_next.copy(), E_next.copy(), depth_next))
+
+        # save reward self var
+        at_terminal, new_winners = self.at_terminal_state(G, E)
+
+        if at_terminal == -1:
+            # not terminal
+            self.current_reward = -depth
+        elif at_terminal == 1:
+            # terminal but no new winner
+            self.current_reward = -depth
+        elif at_terminal == 2:
+            # terminal and found new winner
+            self.current_reward = 1
+            for c in new_winners:
+                assert c not in self.known_winners
+                self.known_winners.add(c)
 
         self.stats.num_nodes += 1
-
-        if params.use_visited:
-            self.update_visited()
 
         if not f_testing:
             self.running_nodes += 1
@@ -539,31 +579,16 @@ class RP_RL_agent():
 
                 self.running_loss = 0
 
+        return new_winners
 
+
+    '''
+    -depth on all states
+    1 if find new winner
+    Return reward stored in self var
+    '''
     def reward(self):
-        current_state, possible_winners = self.at_goal_state(update_stats=0)
-
-        if current_state == -1:
-            # Not a goal state
-            reward_val =  0
-        elif current_state == 2:
-            # Pruning state
-            reward_val = -1
-        else:
-            # Found a new winner
-            if params.f_shape_reward:
-                reward_val = 0
-                for w in possible_winners:
-                    if w not in self.K:
-                        if w not in self.winners_visited:
-                            self.winners_visited[w] = 0
-                        winner_reward_val = 1 - self.winners_visited[w] / (params.num_training_iterations / 20 + self.winners_visited[w])
-                        reward_val = max(reward_val, winner_reward_val)
-                        self.winners_visited[w] += 1
-            else:
-                reward_val = 1
-
-        return torch.tensor(reward_val, dtype = torch.float32)
+        return torch.tensor(self.current_reward, dtype = torch.float32)
 
     '''
     Updates model based on chosen optimizer
@@ -617,39 +642,35 @@ class RP_RL_agent():
             self.optimizer.step()
 
 
-    def save_model(self, id):
-        # Save the model
-        torch.save(self.model.state_dict(), "results_RP_RL_main" + str(id) + "_model.pth.tar")
-        print("model saved")
-
-
     '''
-    Tests num of PUT_winners that can be found in params.num_test_iterations samples
-    test_env is profile to test on
-    begin_time is the time.perf_counter this was called at
-    val_testing is whether or not this test is being done for validation
+    test num nodes to finish full PUT-RP search
     '''
-    def test_model(self, test_env, begin_time = 0, val_testing = 0):
+    def test_model(self, test_env, begin_time, val_testing):
         self.initialize(test_env)
 
-        times_discovered = {}
+        nodes_discovered = {}
         runtimes_discovered = {}
-        num_iters_to_find_all_winners = 0
+
+        # if doing more than 1 iteration, need to change nodes_discovered and runtimes_discovered to compute average discovery node/time
+        assert params.num_test_iterations == 1
 
         # Sample using model greedily
         # Test with fixed number of iterations
         with torch.no_grad():
             for iter in range(params.num_test_iterations):
+                num_nodes = 0
                 self.reset_environment()
-                self.K = frozenset(self.known_winners)
-
-                num_iters_to_find_all_winners += 1
 
                 while self.at_goal_state()[0] == -1:
                     legal_actions = self.get_legal_actions()
 
+                    num_nodes += 1
+
+                    if val_testing and num_nodes > params.cutoff_testing_nodes:
+                        return self.known_winners, nodes_discovered, num_nodes, runtimes_discovered
+
                     if len(legal_actions) == 0:
-                        # No more edges can be added - goal state
+                        # Nothing in frontier - full search done
                         break
 
                     # for random action selection testing
@@ -681,9 +702,10 @@ class RP_RL_agent():
 
                     # Boltzmann LPwinners
                     else:
+                        assert 1==2
                         priorities = []
                         for e in legal_actions:
-                            Gc = self.G.copy()
+                            Gc = G.copy()
                             Gc.add_edges_from([e])
                             G_in_degree = Gc.in_degree(self.I)
                             potential_winners = set([x[0] for x in G_in_degree if x[1] == 0])
@@ -698,169 +720,11 @@ class RP_RL_agent():
 
                     assert (max_action is not None)
 
-                    self.make_move(max_action, f_testing = True)
+                    new_winners = self.make_move(max_action, f_testing = True)
 
-                # At goal state
-                new_winners = self.goal_state_update()
+                    if new_winners is not None:
+                        for c in new_winners:
+                            runtimes_discovered[c] = time.perf_counter() - begin_time
+                            nodes_discovered[c] = num_nodes
 
-                for c in new_winners:
-                    runtimes_discovered[c] = time.perf_counter() - begin_time
-                    times_discovered[c] = iter
-
-        return self.known_winners, times_discovered, num_iters_to_find_all_winners, runtimes_discovered
-
-
-    '''
-    Tests "how many samples to find all winners"
-    test_env is profile
-    true_winners is the set of the actual winners for test_env
-    begin_time is time.perf_counter this was called at
-    '''
-    def test_model_v2(self, test_env, true_winners, begin_time = 0):
-        self.initialize(test_env)
-
-        times_discovered = {}
-        runtimes_discovered = {}
-        num_iters_to_find_all_winners = 0
-
-        # Sample using model greedily
-        with torch.no_grad():
-            # Test till found all winners
-            while self.known_winners != true_winners and num_iters_to_find_all_winners <= params.cutoff_testing_iterations:
-                if not self.known_winners < true_winners:
-                    print(self.known_winners, true_winners)
-                assert self.known_winners < true_winners
-
-                self.reset_environment()
-                self.K = frozenset(self.known_winners)
-
-                num_iters_to_find_all_winners += 1
-
-                while self.at_goal_state()[0] == -1:
-                    legal_actions = self.get_legal_actions()
-
-                    if len(legal_actions) == 0:
-                        # No more edges can be added - goal state
-                        break
-
-                    # for random action selection testing
-                    if params.test_with_random:
-                        selected_action = legal_actions[random.randint(0, len(legal_actions) - 1)]
-
-                    # LPwinners (w/ Boltzmann)
-                    elif params.test_with_LP:
-                        priorities = []
-                        for e in legal_actions:
-                            Gc = self.G.copy()
-                            Gc.add_edges_from([e])
-                            G_in_degree = Gc.in_degree(self.I)
-                            potential_winners = set([x[0] for x in G_in_degree if x[1] == 0])
-                            priority = len(potential_winners - self.known_winners)
-                            priorities.append(exp(priority / params.tau_for_testing))
-                        q_sum = sum(priorities)
-                        probs = []
-                        for v in priorities:
-                            probs.append(v / q_sum)
-                        legal_actions_index = [i for i in range(len(legal_actions))]
-                        selected_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
-
-                    # Boltzmann
-                    else:
-                        q_vals = []
-                        for e in legal_actions:
-                            q_vals.append(exp(self.get_Q_val(e).item() / params.tau_for_testing))
-                        q_sum = sum(q_vals)
-                        probs = []
-                        for v in q_vals:
-                            probs.append(v / q_sum)
-                        legal_actions_index = [i for i in range(len(legal_actions))]
-                        selected_action = legal_actions[np.random.choice(legal_actions_index, p=probs)]
-
-                    assert selected_action is not None
-
-                    self.make_move(selected_action, f_testing = True)
-
-                # At goal state
-                new_winners = self.goal_state_update()
-
-                for c in new_winners:
-                    runtimes_discovered[c] = time.perf_counter() - begin_time
-                    times_discovered[c] = num_iters_to_find_all_winners
-
-        return self.known_winners, times_discovered, num_iters_to_find_all_winners, runtimes_discovered
-
-    def get_current_state(self):
-        other_vars = []
-        other_vars.append(self.E_0.copy())
-        if params.use_voting_rules:
-            other_vars.append(copy.deepcopy(self.plurality_scores))
-            other_vars.append(copy.deepcopy(self.borda_scores))
-            other_vars.append(copy.deepcopy(self.copeland_scores))
-            other_vars.append(copy.deepcopy(self.maximin_scores))
-        else:
-            other_vars.append(None)
-            other_vars.append(None)
-            other_vars.append(None)
-            other_vars.append(None)
-
-        if params.use_vectorized_wmg:
-            other_vars.append(copy.deepcopy(self.vectorized_wmg))
-        else:
-            other_vars.append(None)
-
-        if params.use_posmat:
-            other_vars.append(copy.deepcopy(self.posmat))
-        else:
-            other_vars.append(None)
-
-        if params.use_adjacency_matrix:
-            other_vars.append(copy.deepcopy(self.adjacency_0))
-        else:
-            other_vars.append(None)
-
-        other_vars.append(self.E_0_really.copy())
-        other_vars.append(copy.deepcopy(self.max_edge_weight))
-
-        return [self.G.copy(), self.E.copy(), self.K.copy(), other_vars]
-
-    def set_state(self, new_state):
-        # new_state is of form [G, E, K, other_vars] (same as get_state)
-        self.G = new_state[0]
-        self.E = new_state[1]
-        self.K = new_state[2]
-        other_vars = new_state[3]
-        self.E_0 = other_vars[0]
-        self.plurality_scores = other_vars[1]
-        self.borda_scores = other_vars[2]
-        self.copeland_scores = other_vars[3]
-        self.maximin_scores = other_vars[4]
-        self.vectorized_wmg = other_vars[5]
-        self.posmat = other_vars[6]
-        self.adjacency_0 = other_vars[7]
-        self.E_0_really = other_vars[8]
-        self.max_edge_weight = other_vars[9]
-
-    def state_as_string(self):
-        state_str = RP_utils.edges2string(self.G.edges(), self.I) + RP_utils.edges2string(self.E.edges(), self.I)
-        K_str = ""
-        for i in self.I:
-            if i in self.K:
-                K_str += "1"
-            else:
-                K_str += "0"
-        state_str += K_str
-        return state_str
-
-    def update_visited(self):
-        state_str = self.state_as_string()
-        if state_str in self.visited:
-            self.visited[state_str] += 1
-        else:
-            self.visited[state_str] = 1
-
-    def get_num_times_visited(self):
-        state_str = self.state_as_string()
-        if state_str in self.visited:
-            return self.visited[state_str]
-        return 0
-
+        return self.known_winners, nodes_discovered, num_nodes, runtimes_discovered
