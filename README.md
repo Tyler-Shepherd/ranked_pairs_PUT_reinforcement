@@ -6,3 +6,5 @@ Ranked pairs PUT algorithm based off "Practical Algorithms for STV and Ranked Pa
 main.py runs the code, params.py has configurable parameters.
 
 rpconfig.py defines paths to relevant needed data files.
+
+Run DAgger/RP_DAgger_DFS.py for DAgger algorithm based learning.
