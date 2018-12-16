@@ -28,13 +28,10 @@ from PUT_RP_using_model_v2 import MechanismRankedPairs_v2
 
 from RL_base import RL_base
 from RL_base_experience_replay import RL_base_experience_replay
-from RL_base_PUT_agent_experience_replay import RL_base_PUT_agent_experience_replay
 from RP_RL_agent import RP_RL_agent
-#from RP_RL_agent_node2vec import RP_RL_agent_node2vec
 from RL_base_v2 import RL_base_v2
 from RP_RL_agent_v2 import RP_RL_agent_v2
 from RP_RL_agent_PUT import RP_RL_agent_PUT
-from RP_RL_agent_PUT_experience import RP_RL_agent_PUT_experience
 
 import RP_utils
 
@@ -400,9 +397,27 @@ class RP_RL():
             for t in range(10):
                 test_model(test_output_file, test_output_summary_file, agent, test_filenames, true_winners_test, model_id, "final_" + str(t), False)
 
+        # assert not params.f_use_testing_v2
+        # assert params.f_start_from_default
+        # num_samples_range = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]
+        # runtimes
+        # for num_samples in num_samples_range:
+        #     params.num_test_iterations = num_samples
+        #     print(params.num_test_iterations)
+        #     start = time.perf_counter()
+        #     test_model(val_output_file, val_output_summary_file, agent, validation_filenames, true_winners_val, model_id, num_times_tested, True)
+        #     num_times_tested += 1
+        # return
+
         for epoch in range(params.num_epochs):
             i = 0
             print('---------------Epoch ' + str(epoch) + '------------------------')
+
+            # Shuffle training data
+            if params.shuffle_training_data:
+                combined = list(zip(train_filenames, true_winners_train))
+                random.shuffle(combined)
+                train_filenames, true_winners_train = zip(*combined)
 
             for inputfile in train_filenames:
                 # Test model on validation data
@@ -416,7 +431,7 @@ class RP_RL():
                 #
                 #     num_times_tested += 1
 
-                if i % 500 == 0:
+                if i % 10 == 0:
                     RP_utils.save_model(model, "RL_" + str(i), model_id)
 
                 profile = read_profile(inputfile)
