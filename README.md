@@ -7,4 +7,9 @@ main.py runs the code, params.py has configurable parameters.
 
 rpconfig.py defines paths to relevant needed data files.
 
+PUT_RP_sampling.py can be run independently - it uses the learned model to sample RP a fixed number of times.
+  Set params.default_model_path and params.f_start_from_default
+  Set params.num_testing_iterations for the number of samples to run
+
+
 Run DAgger/RP_DAgger_DFS.py for DAgger algorithm based learning.
