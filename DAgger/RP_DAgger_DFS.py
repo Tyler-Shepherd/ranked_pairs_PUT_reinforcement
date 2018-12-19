@@ -211,7 +211,7 @@ if __name__ == '__main__':
                 index += 1
 
     val_output_file = open('DAgger_val.txt', 'w+')
-    val_output_file.write('filename\tnum nodes\n')
+    val_output_file.write('Filename\tNum Nodes\t100% Discovery Nodes\tRuntime\t100% Discovery Runtime\n')
     val_output_summary_file = open('DAgger_val_summary.txt', 'w+')
     val_output_summary_file.write('Iter\tAvg Num Nodes\tAvg 100% Nodes\tAvg Runtime\tAvg 100% Time\n')
     val_output_file.flush()
@@ -336,6 +336,7 @@ if __name__ == '__main__':
         avg_num_nodes, avg_100_nodes, avg_runtime, avg_100_time = test_policy(val_profiles, val_filenames, true_winners_val, policy, val_output_file)
         val_results.append(avg_num_nodes)
         val_output_summary_file.write(str(iter) + '\t' + str(avg_num_nodes) + '\t' + str(avg_100_nodes) + '\t' + str(avg_runtime) + '\t' + str(avg_100_time) + '\n')
+        val_output_summary_file.flush()
         print('-----------------------')
 
     print(val_results)
